@@ -34,6 +34,7 @@
     "src/js/stations/city.js",
     "src/js/stations/mortar.js",
     "src/js/stations/factory.js",
+    "src/js/stations/orbital-station.js",
 
     "src/js/items/item.js",
     "src/js/items/resource-item.js",

@@ -1,0 +1,311 @@
+class OrbitalStation {
+
+    constructor(star, orbitRadius, orbitPhase, stationNumber) {
+        this.star = star;
+        this.orbitRadius = orbitRadius;
+        this.orbitPhase = orbitPhase;
+        this.stationNumber = stationNumber || 1;
+        this.radius = 60; // About 1/3 planet size (planets are ~150-200)
+        this.reachRadius = this.radius * 3;
+        
+        this.health = 1;
+        this.lastDamage = 0;
+        this.showingDockPrompt = false;
+        
+        // Trading properties - 10 ore (±3) per 1 credit
+        const baseRate = 10; // 10 ore per credit
+        const variation = (Math.random() - 0.5) * 6; // ±3 variation
+        this.orePerCredit = baseRate + variation; // 7-13 ore per credit
+        this.tradeRate = 1 / this.orePerCredit; // credits per ore
+        
+        // Station name based on star name
+        this.stationName = `${star.name || 'Unknown'} OrbDoc ${this.stationNumber}`;
+        
+        // Create a neutral civilization for the station
+        this.civilization = new Civilization(this, 0.5);
+        
+        this.updatePosition();
+    }
+
+    updatePosition() {
+        this.x = this.star.x + cos(this.orbitPhase) * this.orbitRadius;
+        this.y = this.star.y + sin(this.orbitPhase) * this.orbitRadius;
+    }
+
+    cycle(e) {
+        // Orbit around the star more slowly than planets
+        const yearTime = TWO_PI * this.orbitRadius / 15; // Half speed of planets
+        const angularVelocity = TWO_PI / yearTime;
+        this.orbitPhase += e * angularVelocity;
+        
+        this.updatePosition();
+        
+        // Check for docking proximity (4 ship lengths = ~120 units)
+        const dockingDistance = 120;
+        const playerDistance = dist(this, U.playerShip);
+        
+        if (playerDistance < dockingDistance && !this.showingDockPrompt) {
+            this.showingDockPrompt = true;
+            G.showPrompt('Press [D] to dock');
+        } else if (playerDistance >= dockingDistance && this.showingDockPrompt) {
+            this.showingDockPrompt = false;
+            G.showPrompt();
+        }
+    }
+
+    render() {
+        // Always draw white orbital ring (like planets do)
+        translate(this.star.x, this.star.y);
+        R.strokeStyle = '#fff';
+        R.lineWidth = 1;
+        R.globalAlpha = 0.3;
+        beginPath();
+        arc(0, 0, this.orbitRadius, 0, TWO_PI);
+        stroke();
+        R.globalAlpha = 1;
+
+        // Only draw the station itself if visible
+        if (!V.isVisible(this, this.radius)) {
+            return;
+        }
+
+        translate(this.x - this.star.x, this.y - this.star.y);
+        
+        const damageFactor = 1 - limit(0, G.clock - this.lastDamage, 0.1) / 0.1;
+        scale(1 + damageFactor * 0.2, 1 + damageFactor * 0.2);
+
+        // Color based on relationship and damage
+        const color = damageFactor > 0 ? '#fff' : 
+            (this.civilization.relationshipType() === RELATIONSHIP_ENEMY ? '#f00' : 
+             (this.civilization.relationshipType() === RELATIONSHIP_ALLY ? '#0f0' : '#ff0'));
+        
+        fs(color);
+        R.lineWidth = 4;
+        
+        // Draw larger triangular station
+        beginPath();
+        moveTo(0, -30);
+        lineTo(-26, 20);
+        lineTo(26, 20);
+        closePath();
+        fill();
+        stroke();
+        
+        // Draw center core
+        fs('#888');
+        beginPath();
+        arc(0, 0, 8, 0, TWO_PI);
+        fill();
+    }
+
+    damage(source, amount) {
+        if (source.owner == U.playerShip) {
+            particle('#ff0', [
+                ['alpha', 1, 0, 1],
+                ['size', rnd(2, 4), rnd(5, 10), 1],
+                ['x', this.x, this.x + rnd(-20, 20), 1],
+                ['y', this.y, this.y + rnd(-20, 20), 1]
+            ]);
+
+            this.lastDamage = G.clock;
+            this.civilization.updateRelationship(RELATIONSHIP_UPDATE_DAMAGE_STATION);
+            this.civilization.wasAttackedByPlayer = true;
+
+            if ((this.health -= amount) <= 0) {
+                this.explode(source);
+            }
+        }
+    }
+
+    dock() {
+        console.log("Dock method called");
+        
+        // Clear the prompt
+        G.showPrompt();
+        
+        // Connect ship to station - position ship touching the station
+        U.playerShip.dockedStation = this;
+        U.playerShip.isDocked = true;
+        U.playerShip.inTradingInterface = true;
+        
+        console.log("Ship docked, isDocked:", U.playerShip.isDocked);
+        
+        // Initialize player credits if not set
+        if (U.playerShip.credits === undefined) {
+            U.playerShip.credits = 0;
+        }
+        
+        // Calculate angle from station to ship
+        const angleToShip = angleBetween(this, U.playerShip);
+        
+        // Position ship at station edge (station radius + small gap)
+        const dockDistance = this.radius + 15; // Small gap for visual clarity
+        U.playerShip.dockOffset = {
+            x: cos(angleToShip) * dockDistance,
+            y: sin(angleToShip) * dockDistance
+        };
+        
+        console.log("About to show trading interface");
+        
+        // Show trading interface
+        this.showTradingInterface();
+    }
+    
+    showTradingInterface() {
+        const playerOre = U.playerShip.civilization ? U.playerShip.civilization.resources : 0;
+        const playerCredits = U.playerShip.credits || 0;
+        const tradeValue = Math.floor(playerOre * this.tradeRate);
+        const repairCost = 25;
+        const canRepair = playerCredits >= repairCost && (U.playerShip.health < 1 || U.playerShip.shield < 1);
+        
+        if (window.createTradingPanel) {
+            window.createTradingPanel(this.stationName, playerOre, playerCredits, this.orePerCredit, tradeValue, repairCost, canRepair);
+        } else {
+            // Fallback to simple prompt if panel function not available
+            const options = [];
+            if (playerOre > 0) {
+                options.push({label: `Sell Ore (${tradeValue} credits)`, action: () => this.sellOre()});
+            }
+            if (canRepair) {
+                options.push({label: `Repair Ship (${repairCost} credits)`, action: () => this.repairShip()});
+            }
+            options.push({label: 'Mod Bay', action: () => this.showModBay()});
+            options.push({label: 'Leave Station', action: () => this.undock()});
+            
+            G.showPrompt(`${this.stationName}\nOre: ${playerOre}\nCredits: ${playerCredits}\nRate: ${this.orePerCredit.toFixed(1)} ore/credit\nSell Value: ${tradeValue}`, options);
+        }
+    }
+    
+    sellOre() {
+        const playerOre = U.playerShip.civilization ? U.playerShip.civilization.resources : 0;
+        const tradeValue = Math.floor(playerOre * this.tradeRate);
+        
+        if (playerOre > 0) {
+            // Add credits to player
+            U.playerShip.credits = (U.playerShip.credits || 0) + tradeValue;
+            
+            // Remove ore from player
+            if (U.playerShip.civilization) {
+                U.playerShip.civilization.resources = 0;
+            }
+        }
+        
+        // Refresh the trading interface
+        this.showTradingInterface();
+    }
+    
+    repairShip() {
+        const repairCost = 25;
+        const playerCredits = U.playerShip.credits || 0;
+        
+        if (playerCredits >= repairCost && (U.playerShip.health < 1 || U.playerShip.shield < 1)) {
+            // Deduct credits
+            U.playerShip.credits -= repairCost;
+            
+            // Restore health and shields to full
+            U.playerShip.health = 1;
+            U.playerShip.shield = 1;
+        }
+        
+        // Refresh the trading interface
+        this.showTradingInterface();
+    }
+    
+    showModBay() {
+        // Initialize ship upgrades if not present
+        if (!U.playerShip.upgrades) {
+            U.playerShip.upgrades = {
+                hull: 0,
+                shield: 0,
+                phasers: 0,
+                torpedos: 0,
+                thermalVent: 0,
+                weightCapacity: 0,
+                cargoBay: 0
+            };
+        }
+        
+        const playerCredits = U.playerShip.credits || 0;
+        
+        if (window.createModBayPanel) {
+            window.createModBayPanel(this.stationName, playerCredits, U.playerShip.upgrades);
+        } else {
+            // Fallback
+            G.showPrompt(`${this.stationName} - MOD BAY\nCredits: ${playerCredits}\nUpgrade costs: 50, 100, 200, 400...`, [
+                {label: 'Back to Trading', action: () => this.showTradingInterface()}
+            ]);
+        }
+    }
+    
+    purchaseUpgrade(upgradeType) {
+        if (!U.playerShip.upgrades) {
+            U.playerShip.upgrades = {
+                hull: 0,
+                shield: 0,
+                phasers: 0,
+                torpedos: 0,
+                thermalVent: 0,
+                weightCapacity: 0,
+                cargoBay: 0
+            };
+        }
+        
+        const currentLevel = U.playerShip.upgrades[upgradeType] || 0;
+        const upgradeCost = 50 * Math.pow(2, currentLevel); // 50, 100, 200, 400...
+        const playerCredits = U.playerShip.credits || 0;
+        
+        if (playerCredits >= upgradeCost) {
+            U.playerShip.credits -= upgradeCost;
+            U.playerShip.upgrades[upgradeType] = currentLevel + 1;
+        }
+        
+        // Refresh the mod bay interface
+        this.showModBay();
+    }
+    
+    undock() {
+        // Remove trading panel
+        const tradingPanel = document.getElementById('trading-panel');
+        if (tradingPanel) {
+            tradingPanel.remove();
+        }
+        
+        // Disconnect ship from station
+        if (U.playerShip.dockedStation === this) {
+            U.playerShip.dockedStation = null;
+            U.playerShip.isDocked = false;
+            U.playerShip.dockOffset = null;
+            U.playerShip.inTradingInterface = false;
+        }
+        
+        // Clear any remaining prompts
+        G.showPrompt();
+    }
+
+    explode(source) {
+        for (let i = 0; i < 50; i++) {
+            const angle = random() * TWO_PI;
+            const distance = rnd(30, 50);
+
+            particle(pick(['#ff0', '#f80', '#f00']), [
+                ['alpha', 1, 0, 1],
+                ['size', rnd(2, 4), rnd(5, 10), 1],
+                ['x', this.x, this.x + cos(angle) * distance, 1],
+                ['y', this.y, this.y + sin(angle) * distance, 1]
+            ]);
+        }
+
+        U.remove(U.orbitalStations, this);
+
+        if (source == U.playerShip) {
+            this.civilization.updateRelationship(RELATIONSHIP_UPDATE_DESTROY_STATION);
+        }
+
+        U.dropResources(this.x, this.y, 15);
+    }
+
+    nameWithRelationship() {
+        return 'Orbital Station (' + this.civilization.relationshipLabel() + ')';
+    }
+
+}
