@@ -1,10 +1,9 @@
 class OrbitalStation {
 
-    constructor(star, orbitRadius, orbitPhase, stationNumber) {
+    constructor(star, orbitRadius, orbitPhase) {
         this.star = star;
         this.orbitRadius = orbitRadius;
         this.orbitPhase = orbitPhase;
-        this.stationNumber = stationNumber || 1;
         this.radius = 60; // About 1/3 planet size (planets are ~150-200)
         this.reachRadius = this.radius * 3;
         
@@ -12,14 +11,11 @@ class OrbitalStation {
         this.lastDamage = 0;
         this.showingDockPrompt = false;
         
-        // Trading properties - 10 ore (±3) per 1 credit
-        const baseRate = 10; // 10 ore per credit
+        // Trading properties - 10 resources (±3) per 1 credit
+        const baseRate = 10; // 10 resources per credit
         const variation = (Math.random() - 0.5) * 6; // ±3 variation
-        this.orePerCredit = baseRate + variation; // 7-13 ore per credit
-        this.tradeRate = 1 / this.orePerCredit; // credits per ore
-        
-        // Station name based on star name
-        this.stationName = `${star.name || 'Unknown'} OrbDoc ${this.stationNumber}`;
+        this.resourcesPerCredit = baseRate + variation; // 7-13 resources per credit
+        this.tradeRate = 1 / this.resourcesPerCredit; // credits per resource
         
         // Create a neutral civilization for the station
         this.civilization = new Civilization(this, 0.5);
@@ -152,39 +148,39 @@ class OrbitalStation {
     }
     
     showTradingInterface() {
-        const playerOre = U.playerShip.civilization ? U.playerShip.civilization.resources : 0;
+        const playerResources = U.playerShip.civilization ? U.playerShip.civilization.resources : 0;
         const playerCredits = U.playerShip.credits || 0;
-        const tradeValue = Math.floor(playerOre * this.tradeRate);
-        const repairCost = 25;
+        const tradeValue = Math.floor(playerResources * this.tradeRate);
+        const repairCost = 20;
         const canRepair = playerCredits >= repairCost && (U.playerShip.health < 1 || U.playerShip.shield < 1);
         
+        // Use the global function to create the panel
         if (window.createTradingPanel) {
-            window.createTradingPanel(this.stationName, playerOre, playerCredits, this.orePerCredit, tradeValue, repairCost, canRepair);
+            window.createTradingPanel(playerResources, playerCredits, this.resourcesPerCredit, tradeValue, repairCost, canRepair);
         } else {
             // Fallback to simple prompt if panel function not available
             const options = [];
-            if (playerOre > 0) {
-                options.push({label: `Sell Ore (${tradeValue} credits)`, action: () => this.sellOre()});
+            if (playerResources > 0) {
+                options.push({label: `Sell Resources (${tradeValue} credits)`, action: () => this.sellResources()});
             }
             if (canRepair) {
                 options.push({label: `Repair Ship (${repairCost} credits)`, action: () => this.repairShip()});
             }
-            options.push({label: 'Mod Bay', action: () => this.showModBay()});
             options.push({label: 'Leave Station', action: () => this.undock()});
             
-            G.showPrompt(`${this.stationName}\nOre: ${playerOre}\nCredits: ${playerCredits}\nRate: ${this.orePerCredit.toFixed(1)} ore/credit\nSell Value: ${tradeValue}`, options);
+            G.showPrompt(`TRADING STATION\nResources: ${playerResources}\nCredits: ${playerCredits}\nRate: ${this.resourcesPerCredit.toFixed(1)} resources/credit\nSell Value: ${tradeValue}`, options);
         }
     }
     
-    sellOre() {
-        const playerOre = U.playerShip.civilization ? U.playerShip.civilization.resources : 0;
-        const tradeValue = Math.floor(playerOre * this.tradeRate);
+    sellResources() {
+        const playerResources = U.playerShip.civilization ? U.playerShip.civilization.resources : 0;
+        const tradeValue = Math.floor(playerResources * this.tradeRate);
         
-        if (playerOre > 0) {
+        if (playerResources > 0) {
             // Add credits to player
             U.playerShip.credits = (U.playerShip.credits || 0) + tradeValue;
             
-            // Remove ore from player
+            // Remove resources from player
             if (U.playerShip.civilization) {
                 U.playerShip.civilization.resources = 0;
             }
@@ -195,7 +191,7 @@ class OrbitalStation {
     }
     
     repairShip() {
-        const repairCost = 25;
+        const repairCost = 20;
         const playerCredits = U.playerShip.credits || 0;
         
         if (playerCredits >= repairCost && (U.playerShip.health < 1 || U.playerShip.shield < 1)) {
@@ -209,58 +205,6 @@ class OrbitalStation {
         
         // Refresh the trading interface
         this.showTradingInterface();
-    }
-    
-    showModBay() {
-        // Initialize ship upgrades if not present
-        if (!U.playerShip.upgrades) {
-            U.playerShip.upgrades = {
-                hull: 0,
-                shield: 0,
-                phasers: 0,
-                torpedos: 0,
-                thermalVent: 0,
-                weightCapacity: 0,
-                cargoBay: 0
-            };
-        }
-        
-        const playerCredits = U.playerShip.credits || 0;
-        
-        if (window.createModBayPanel) {
-            window.createModBayPanel(this.stationName, playerCredits, U.playerShip.upgrades);
-        } else {
-            // Fallback
-            G.showPrompt(`${this.stationName} - MOD BAY\nCredits: ${playerCredits}\nUpgrade costs: 50, 100, 200, 400...`, [
-                {label: 'Back to Trading', action: () => this.showTradingInterface()}
-            ]);
-        }
-    }
-    
-    purchaseUpgrade(upgradeType) {
-        if (!U.playerShip.upgrades) {
-            U.playerShip.upgrades = {
-                hull: 0,
-                shield: 0,
-                phasers: 0,
-                torpedos: 0,
-                thermalVent: 0,
-                weightCapacity: 0,
-                cargoBay: 0
-            };
-        }
-        
-        const currentLevel = U.playerShip.upgrades[upgradeType] || 0;
-        const upgradeCost = 50 * Math.pow(2, currentLevel); // 50, 100, 200, 400...
-        const playerCredits = U.playerShip.credits || 0;
-        
-        if (playerCredits >= upgradeCost) {
-            U.playerShip.credits -= upgradeCost;
-            U.playerShip.upgrades[upgradeType] = currentLevel + 1;
-        }
-        
-        // Refresh the mod bay interface
-        this.showModBay();
     }
     
     undock() {
