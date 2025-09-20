@@ -42,7 +42,19 @@ class OrbitalStation {
         
         if (playerDistance < dockingDistance && !this.showingDockPrompt) {
             this.showingDockPrompt = true;
-            G.showPrompt('Press [D] to dock');
+            // Compute Station title for HUD while approaching
+            let title = (this.star && this.star.name ? this.star.name : 'Unknown') + ' - Station - 1';
+            try {
+                if (U && U.orbitalStations) {
+                    const siblings = U.orbitalStations.filter(s => s.star === this.star);
+                    const index = siblings.indexOf(this) + 1 || 1;
+                    title = (this.star && this.star.name ? this.star.name : 'Unknown') + ' - Station - ' + index;
+                }
+            } catch (e) {
+                // ignore and fall back to default title
+            }
+
+            G.showPrompt(`${title}\nPress [D] to dock`);
         } else if (playerDistance >= dockingDistance && this.showingDockPrompt) {
             this.showingDockPrompt = false;
             G.showPrompt();
@@ -154,9 +166,22 @@ class OrbitalStation {
         const repairCost = 20;
         const canRepair = playerCredits >= repairCost && (U.playerShip.health < 1 || U.playerShip.shield < 1);
         
-        // Use the global function to create the panel
+        // Compute station index within this star's orbital stations (1-based)
+        let index = 1;
+        try {
+            if (U && U.orbitalStations) {
+                const siblings = U.orbitalStations.filter(s => s.star === this.star);
+                index = siblings.indexOf(this) + 1 || 1;
+            }
+        } catch (e) {
+            index = 1;
+        }
+
+    const title = (this.star && this.star.name ? this.star.name : 'Unknown') + ' - Station - ' + index;
+        
+        // Use the global function to create the panel (now accepts a title first)
         if (window.createTradingPanel) {
-            window.createTradingPanel(playerResources, playerCredits, this.resourcesPerCredit, tradeValue, repairCost, canRepair);
+            window.createTradingPanel(title, playerResources, playerCredits, this.resourcesPerCredit, tradeValue, repairCost, canRepair);
         } else {
             // Fallback to simple prompt if panel function not available
             const options = [];
@@ -168,7 +193,7 @@ class OrbitalStation {
             }
             options.push({label: 'Leave Station', action: () => this.undock()});
             
-            G.showPrompt(`TRADING STATION\nResources: ${playerResources}\nCredits: ${playerCredits}\nRate: ${this.resourcesPerCredit.toFixed(1)} resources/credit\nSell Value: ${tradeValue}`, options);
+            G.showPrompt(`${title}\nResources: ${playerResources}\nCredits: ${playerCredits}\nRate: ${this.resourcesPerCredit.toFixed(1)} resources/credit\nSell Value: ${tradeValue}`, options);
         }
     }
     

@@ -161,6 +161,19 @@ class Ship {
             ]);
         }
 
+        // Determine if this ship should drop cargo on destruction: enemy civilizations (or pirates as fallback)
+        let shouldDropCargo = false;
+        try {
+            if (this.civilization && typeof this.civilization.relationshipType === 'function') {
+                shouldDropCargo = (this.civilization.relationshipType() === RELATIONSHIP_ENEMY);
+            }
+        } catch (e) { shouldDropCargo = false; }
+
+        // Fallback to pirate-specific list if relationship info not available
+        try {
+            if (!shouldDropCargo && U.pirates && U.pirates.indexOf(this) >= 0) shouldDropCargo = true;
+        } catch (e) {}
+
         U.remove(U.ships, this);
         U.remove(U.pirates, this);
 
@@ -168,7 +181,39 @@ class Ship {
             explosionSound();
         }
 
+        // Drop raw resources
         U.dropResources(this.x, this.y, 10);
+
+        // If this ship qualifies, drop a cargo item (random type, 1-20 units)
+        try {
+            if (shouldDropCargo) {
+                // Choose a cargo type (random) from CARGO_DATA if available, otherwise fallback name
+                let cargoName = 'Cryogenic Embryos';
+                let units = 1 + Math.floor(Math.random() * 20); // 1-20 units
+                try {
+                    if (typeof CARGO_DATA !== 'undefined' && Array.isArray(CARGO_DATA) && CARGO_DATA.length) {
+                        const idx = Math.floor(Math.random() * CARGO_DATA.length);
+                        const def = CARGO_DATA[idx];
+                        if (def && def.cargo) cargoName = def.cargo;
+                    }
+                } catch (e) {
+                    // ignore and use fallback
+                }
+
+                // Ensure the CargoItem class is available (it should be included in build)
+                if (typeof CargoItem !== 'undefined') {
+                    console.log('Dropping CargoItem', cargoName, units, 'at', this.x, this.y);
+                    U.items.push(new CargoItem(this.x, this.y, cargoName, units));
+                } else {
+                    // Fallback: create a ResourceItem if CargoItem not present
+                    console.log('CargoItem not defined, dropping ResourceItem as fallback');
+                    U.items.push(new ResourceItem(this.x, this.y));
+                }
+            }
+        } catch (e) {
+            // ignore errors here to avoid crashing on explosion
+            console.error('Error dropping cargo item:', e);
+        }
     }
 
 }

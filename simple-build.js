@@ -22,6 +22,14 @@ jsFiles.forEach(file => {
     }
 });
 
+// Inject cargo data into the bundle so UI can reference CARGO_DATA at runtime
+try {
+    const cargoJson = fs.readFileSync('./data/cargo.json', 'utf8');
+    js = 'const CARGO_DATA = ' + cargoJson + '\n' + js;
+} catch (e) {
+    console.log('Warning: could not read data/cargo.json - planet markets will use fallback values');
+}
+
 // Replace constants in JS
 Object.keys(constants).forEach(key => {
     const value = constants[key];
@@ -163,10 +171,11 @@ js = js.replace(/this\.bodies\.forEach\(body => wrap\(\(\) => body\.render\(\)\)
 
 // Add docked ship behavior in player ship cycle method
 js = js.replace(/this\.x \+= this\.vX \* e;[\s\S]*?this\.y \+= this\.vY \* e;/g,
-    `if (this.isDocked && this.dockedStation) {
-            // Ship is docked - follow the station
-            this.x = this.dockedStation.x + this.dockOffset.x;
-            this.y = this.dockedStation.y + this.dockOffset.y;
+    `if (this.isDocked && (this.dockedStation || this.dockedPlanet)) {
+            // Ship is docked - follow the station or planet
+            const dockTarget = this.dockedStation || this.dockedPlanet;
+            this.x = dockTarget.x + this.dockOffset.x;
+            this.y = dockTarget.y + this.dockOffset.y;
         } else {
             // Normal ship movement
             this.x += this.vX * e;
@@ -191,7 +200,7 @@ js = js.replace(/if \(w\.down\[13\]\) \{/g,
 
 // Add trading interface keyboard shortcuts
 js = js.replace(/if \(w\.down\[32\]\) this\.shoot\(SimpleLaser\);/g,
-    'if (w.down[83] && this.inTradingInterface && this.dockedStation) { /* S key for Sell */\n            const playerResources = this.civilization ? this.civilization.resources : 0;\n            if (playerResources > 0) {\n                this.dockedStation.sellResources();\n            }\n        }\n        if (w.down[82] && this.inTradingInterface && this.dockedStation) { /* R key for Repair */\n            const repairCost = 20;\n            const playerCredits = this.credits || 0;\n            if (playerCredits >= repairCost && (this.health < 1 || this.shield < 1)) {\n                this.dockedStation.repairShip();\n            }\n        }\n        if (w.down[76] && this.inTradingInterface && this.dockedStation) { /* L key for Leave */\n            this.dockedStation.undock();\n        }\n        if (w.down[27] && this.inTradingInterface && this.dockedStation) { /* Escape key for Leave */\n            this.dockedStation.undock();\n        }\n        if (w.down[32] && !this.inTradingInterface) this.shoot(SimpleLaser);');
+    'if (w.down[83] && this.inTradingInterface && (this.dockedStation || this.dockedPlanet)) { /* S key for Sell */\n            const playerResources = this.civilization ? this.civilization.resources : 0;\n            if (playerResources > 0) {\n                if (this.dockedStation) this.dockedStation.sellResources();\n                else if (this.dockedPlanet && this.dockedPlanet.sellResources) this.dockedPlanet.sellResources();\n            }\n        }\n        if (w.down[82] && this.inTradingInterface && (this.dockedStation || this.dockedPlanet)) { /* R key for Repair */\n            const repairCost = 20;\n            const playerCredits = this.credits || 0;\n            if (playerCredits >= repairCost && (this.health < 1 || this.shield < 1)) {\n                if (this.dockedStation) this.dockedStation.repairShip();\n                else if (this.dockedPlanet && this.dockedPlanet.repairShip) this.dockedPlanet.repairShip();\n            }\n        }\n        if (w.down[76] && this.inTradingInterface && (this.dockedStation || this.dockedPlanet)) { /* L key for Leave */\n            if (this.dockedStation) this.dockedStation.undock();\n            else if (this.dockedPlanet && window.planetaryUndock) window.planetaryUndock();\n        }\n        if (w.down[27] && this.inTradingInterface && (this.dockedStation || this.dockedPlanet)) { /* Escape key for Leave */\n            if (this.dockedStation) this.dockedStation.undock();\n            else if (this.dockedPlanet && window.planetaryUndock) window.planetaryUndock();\n        }\n        if (w.down[32] && !this.inTradingInterface) this.shoot(SimpleLaser);');
 
 // Disable mission prompts while in trading interface
 js = js.replace(/G\.showPrompt\(\(\) => nomangle\('Incoming communication/g,
@@ -215,167 +224,7 @@ js = js.replace(/if \(w\.down\[32\]\) this\.shoot\(SimpleLaser\);/g,
 js = js.replace(/RELATIONSHIP_ENEMY/g, "'#f00'");
 js = js.replace(/RELATIONSHIP_ALLY/g, "'#0f0'");
 
-// Add trading interface panel CSS and HTML
-const tradingInterfaceCSS = `
-<style>
-#trading-panel {
-    position: fixed;
-    top: 50%;
-    left: 50%;
-    transform: translate(-50%, -50%);
-    background: rgba(0, 20, 40, 0.95);
-    border: 2px solid #00ffff;
-    border-radius: 10px;
-    padding: 20px;
-    color: #ffffff;
-    font-family: monospace;
-    font-size: 14px;
-    min-width: 400px;
-    max-width: 500px;
-    z-index: 1000;
-    box-shadow: 0 0 20px rgba(0, 255, 255, 0.3);
-}
-
-#trading-panel h2 {
-    color: #00ffff;
-    text-align: center;
-    margin: 0 0 20px 0;
-    font-size: 18px;
-}
-
-#trading-panel .section {
-    margin-bottom: 15px;
-    padding: 10px;
-    background: rgba(0, 0, 0, 0.3);
-    border-radius: 5px;
-}
-
-#trading-panel .section h3 {
-    color: #ffff00;
-    margin: 0 0 8px 0;
-    font-size: 14px;
-}
-
-#trading-panel .info-row {
-    display: flex;
-    justify-content: space-between;
-    margin: 5px 0;
-}
-
-#trading-panel .buttons {
-    display: flex;
-    gap: 10px;
-    justify-content: center;
-    margin-top: 20px;
-}
-
-#trading-panel button {
-    background: #004080;
-    border: 1px solid #00ffff;
-    color: #ffffff;
-    padding: 8px 16px;
-    border-radius: 5px;
-    cursor: pointer;
-    font-family: monospace;
-    font-size: 12px;
-}
-
-#trading-panel button:hover {
-    background: #0066cc;
-    box-shadow: 0 0 5px rgba(0, 255, 255, 0.5);
-}
-
-#trading-panel button:disabled {
-    background: #333;
-    color: #666;
-    cursor: not-allowed;
-}
-</style>
-`;
-
-// Inject trading interface CSS into HTML - target the actual HTML file content
-html = html.replace(/<\/head>/g, tradingInterfaceCSS + '</head>');
-
-// Add trading panel creation function to global scope
-const tradingPanelFunction = `
-window.createTradingPanel = function(playerResources, playerCredits, resourcesPerCredit, tradeValue, repairCost, canRepair) {
-    // Remove existing panel if present
-    const existingPanel = document.getElementById('trading-panel');
-    if (existingPanel) {
-        existingPanel.remove();
-    }
-    
-    // Create panel with inline styles to ensure visibility
-    const panel = document.createElement('div');
-    panel.id = 'trading-panel';
-    panel.style.cssText = \`
-        position: fixed !important;
-        top: 50% !important;
-        left: 50% !important;
-        transform: translate(-50%, -50%) !important;
-        background: rgba(0, 20, 40, 0.95) !important;
-        border: 2px solid #00ffff !important;
-        border-radius: 10px !important;
-        padding: 20px !important;
-        color: #ffffff !important;
-        font-family: monospace !important;
-        font-size: 14px !important;
-        min-width: 400px !important;
-        max-width: 500px !important;
-        z-index: 10000 !important;
-        box-shadow: 0 0 20px rgba(0, 255, 255, 0.3) !important;
-    \`;
-    
-    panel.innerHTML = \`
-        <h2 style="color: #00ffff; text-align: center; margin: 0 0 20px 0; font-size: 18px;">ORBITAL TRADING STATION</h2>
-        
-        <div style="margin-bottom: 15px; padding: 10px; background: rgba(0, 0, 0, 0.3); border-radius: 5px;">
-            <h3 style="color: #ffff00; margin: 0 0 8px 0; font-size: 14px;">INVENTORY</h3>
-            <div style="display: flex; justify-content: space-between; margin: 5px 0;">
-                <span>Resources:</span>
-                <span>\${playerResources} units</span>
-            </div>
-            <div style="display: flex; justify-content: space-between; margin: 5px 0;">
-                <span>Credits:</span>
-                <span>\${playerCredits}</span>
-            </div>
-        </div>
-        
-        <div style="margin-bottom: 15px; padding: 10px; background: rgba(0, 0, 0, 0.3); border-radius: 5px;">
-            <h3 style="color: #ffff00; margin: 0 0 8px 0; font-size: 14px;">TRADE RATES</h3>
-            <div style="display: flex; justify-content: space-between; margin: 5px 0;">
-                <span>Exchange Rate:</span>
-                <span>\${resourcesPerCredit.toFixed(1)} resources/credit</span>
-            </div>
-            <div style="display: flex; justify-content: space-between; margin: 5px 0;">
-                <span>Sell Value:</span>
-                <span>\${tradeValue} credits</span>
-            </div>
-        </div>
-        
-        <div style="margin-bottom: 15px; padding: 10px; background: rgba(0, 0, 0, 0.3); border-radius: 5px;">
-            <h3 style="color: #ffff00; margin: 0 0 8px 0; font-size: 14px;">SERVICES</h3>
-            <div style="display: flex; justify-content: space-between; margin: 5px 0;">
-                <span>Ship Repair:</span>
-                <span>\${repairCost} credits</span>
-            </div>
-            <div style="text-align: center; color: #888; font-size: 12px; margin-top: 8px;">
-                Ship upgrades and cargo coming soon...
-            </div>
-        </div>
-        
-        <div style="display: flex; gap: 10px; justify-content: center; margin-top: 20px; flex-wrap: wrap;">
-            \${playerResources > 0 ? \`<button onclick="U.playerShip.dockedStation.sellResources()" style="background: #004080; border: 1px solid #00ffff; color: #ffffff; padding: 8px 16px; border-radius: 5px; cursor: pointer; font-family: monospace; font-size: 12px;">[S] Sell Resources (\${tradeValue} credits)</button>\` : ''}
-            \${canRepair ? \`<button onclick="U.playerShip.dockedStation.repairShip()" style="background: #004080; border: 1px solid #00ffff; color: #ffffff; padding: 8px 16px; border-radius: 5px; cursor: pointer; font-family: monospace; font-size: 12px;">[R] Repair Ship (\${repairCost} credits)</button>\` : ''}
-            <button onclick="U.playerShip.dockedStation.undock()" style="background: #004080; border: 1px solid #00ffff; color: #ffffff; padding: 8px 16px; border-radius: 5px; cursor: pointer; font-family: monospace; font-size: 12px;">[L] Leave Station</button>
-        </div>
-    \`;
-    
-    document.body.appendChild(panel);
-};
-`;
-
-js += tradingPanelFunction;
+// (Trading panel creation moved into src/js/ui/trading-panel-wrapper.js and src/js/ui/menu-panel.js)
 
 // Add missing global functions that might be needed
 const globalFunctions = `

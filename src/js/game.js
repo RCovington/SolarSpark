@@ -16,8 +16,8 @@ class Game {
 
         // G.missionStep = null; // for reference
 
-        G.titleStickString = stickString(nomangle('everyone\'s'));
-        G.subtitleStickString = stickString(nomangle('sky'));
+    G.titleStickString = stickString(nomangle('SolarSpark'));
+    G.subtitleStickString = stickString(nomangle(''));
         G.instructionsStickString = stickString(nomangle('press enter to send a ship'));
 
         G.titleCharWidth = G.subtitleCharWidth = 50;

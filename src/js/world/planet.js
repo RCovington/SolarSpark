@@ -99,6 +99,30 @@ class Planet extends Body {
         if ((this.nextEvolution -= e) < 0) {
             this.evolve();
         }
+
+        // Show HUD prompt when player is within reach to allow trading, but only if planet is friendly
+        try {
+            const playerDistance = dist(this, U.playerShip);
+            const friendly = this.civilization && this.civilization.relationshipType && this.civilization.relationshipType() === RELATIONSHIP_ALLY;
+            if (friendly) {
+                if (playerDistance < this.reachRadius && !this.showingTradePrompt) {
+                    this.showingTradePrompt = true;
+                    const title = (this.name || 'Unknown') + ' - Planetary Trade';
+                    G.showPrompt(`${title}\nPress [D] to trade`);
+                } else if (playerDistance >= this.reachRadius && this.showingTradePrompt) {
+                    this.showingTradePrompt = false;
+                    G.showPrompt();
+                }
+            } else {
+                // If no longer friendly, clear any prompt
+                if (this.showingTradePrompt) {
+                    this.showingTradePrompt = false;
+                    G.showPrompt();
+                }
+            }
+        } catch (e) {
+            // ignore if U.playerShip not available yet
+        }
     }
 
     evolve() {
