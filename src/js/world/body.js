@@ -10,6 +10,11 @@ class Body {
             const minDist = this.radius + ship.radius;
             const overlap = minDist - dist(ship, this);
             if (overlap > 0) {
+                // If the ship is docked (e.g. in planetary/station trade UI) skip collision handling
+                // This prevents repeated explosion/crash sounds while the player is docked.
+                try {
+                    if (ship.isDocked || ship.inTradingInterface) return;
+                } catch (e) {}
                 // Push the ship away
                 const angle = angleBetween(this, ship);
                 ship.x = this.x + cos(angle) * (minDist + 5);

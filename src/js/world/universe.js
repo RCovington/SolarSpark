@@ -26,6 +26,55 @@ class Universe {
     createPlayerShip() {
         this.remove(this.ships, this.playerShip);
         this.ships.push(this.playerShip = new PlayerShip(this.center.x, this.center.y));
+        // New ship should start with zero credits and empty cargo by default. If restoreState
+        // later populates upgrades/baseStats they'll be applied, but credits/cargo are reset
+        // on creation (so they are lost on destruction/respawn as requested).
+        try { this.playerShip.credits = 0; } catch (e) {}
+        try { this.playerShip.cargo = {}; } catch (e) {}
+    // Ensure a sensible default cargo capacity so upgrades apply relative to a real base
+    try { if (typeof this.playerShip.cargoCapacity !== 'number' || this.playerShip.cargoCapacity <= 0) this.playerShip.cargoCapacity = 200; } catch (e) {}
+
+        // Wrap credits and cargoCapacity with property accessors so UI can listen for changes
+        try {
+            const ship = this.playerShip;
+            // Credits
+            try {
+                ship._credits = ship._credits || (ship.credits || 0);
+                Object.defineProperty(ship, 'credits', {
+                    configurable: true,
+                    enumerable: true,
+                    get: function() { return this._credits; },
+                    set: function(v) {
+                        const old = this._credits;
+                        this._credits = v;
+                        try {
+                            if (typeof G !== 'undefined' && G && G.eventHub && old !== v) {
+                                G.eventHub.emit('player:creditsChanged', v);
+                            }
+                        } catch (e) {}
+                    }
+                });
+            } catch (e) {}
+
+            // cargoCapacity
+            try {
+                ship._cargoCapacity = ship._cargoCapacity || (ship.cargoCapacity || 0);
+                Object.defineProperty(ship, 'cargoCapacity', {
+                    configurable: true,
+                    enumerable: true,
+                    get: function() { return this._cargoCapacity; },
+                    set: function(v) {
+                        const old = this._cargoCapacity;
+                        this._cargoCapacity = v;
+                        try {
+                            if (typeof G !== 'undefined' && G && G.eventHub && old !== v) {
+                                G.eventHub.emit('player:cargoCapacityChanged', v);
+                            }
+                        } catch (e) {}
+                    }
+                });
+            } catch (e) {}
+        } catch (e) {}
     }
 
     cycle(e) {
@@ -203,6 +252,77 @@ class Universe {
             this.refreshOffers();
             // set the refresh timer so we don't immediately regenerate on the next cycle
             this.offerRefreshTimer = 600;
+        } catch (e) { /* ignore */ }
+
+        // Attempt to restore persisted world state (reputation, markets) if available
+        try {
+            if (typeof this.restoreState === 'function') this.restoreState();
+        } catch (e) { /* ignore */ }
+    }
+
+    saveState() {
+        try {
+            const key = 'ss_save_v1';
+            const payload = this.bodies.filter(b => b instanceof Planet).map(p => ({
+                name: p.name,
+                reputation: p.civilization && typeof p.civilization.reputation === 'number' ? p.civilization.reputation : undefined,
+                market: p.market || null,
+                prices: p.prices || null
+            }));
+            // Persist player ship upgrades and base stats
+            try {
+                const shipData = {};
+                if (this.playerShip) {
+                    shipData.upgrades = this.playerShip.upgrades || null;
+                    shipData.baseStats = this.playerShip.baseStats || null;
+                    shipData.credits = this.playerShip.credits || 0;
+                }
+                payload.push({__playerShip: shipData});
+            } catch (e) { /* ignore */ }
+            try { localStorage.setItem(key, JSON.stringify(payload)); } catch (e) { /* ignore */ }
+        } catch (e) { /* ignore */ }
+    }
+
+    restoreState() {
+        try {
+            const key = 'ss_save_v1';
+            let raw = null;
+            try { raw = localStorage.getItem(key); } catch (e) { raw = null; }
+            if (!raw) return;
+            const payload = JSON.parse(raw);
+            if (!Array.isArray(payload)) return;
+            // match by planet name and restore simple fields
+            payload.forEach(entry => {
+                try {
+                    const p = this.bodies.find(b => b instanceof Planet && b.name === entry.name);
+                    if (!p) return;
+                    if (entry.reputation !== undefined && p.civilization) {
+                        p.civilization.reputation = entry.reputation;
+                        if (typeof p.civilization.applyReputationToRelationship === 'function') p.civilization.applyReputationToRelationship();
+                    }
+                    if (entry.market) p.market = entry.market;
+                    if (entry.prices) p.prices = entry.prices;
+                } catch (e) { /* ignore per-entry */ }
+            });
+            // Try to find player ship data appended at the end
+            try {
+                const shipEntry = payload.find(e => e && e.__playerShip);
+                if (shipEntry && this.playerShip) {
+                    const sd = shipEntry.__playerShip;
+                        // Only restore upgrades and baseStats for respawn persistence. Do NOT restore
+                        // credits or cargo: those should be lost when a ship is destroyed.
+                        if (sd.upgrades) this.playerShip.upgrades = sd.upgrades;
+                        if (sd.baseStats) this.playerShip.baseStats = sd.baseStats;
+                    // Reapply upgrades to ensure ship stats updated
+                    if (typeof this.playerShip.upgrades !== 'undefined' && typeof this.playerShip.baseStats !== 'undefined') {
+                        try {
+                            if (typeof window !== 'undefined' && typeof window.applyShipUpgrades === 'function') {
+                                try { window.applyShipUpgrades(this.playerShip); } catch (e) {}
+                            }
+                        } catch (e) {}
+                    }
+                }
+            } catch (e) { /* ignore */ }
         } catch (e) { /* ignore */ }
     }
 

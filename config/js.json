@@ -36,6 +36,7 @@
     "src/js/stations/factory.js",
     "src/js/ui/menu-panel.js",
     "src/js/ui/trading-panel-wrapper.js",
+    "src/js/ui/mod-bay-panel.js",
     "src/js/ui/planetary-trade-wrapper.js",
     "src/js/stations/orbital-station.js",
 

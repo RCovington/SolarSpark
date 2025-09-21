@@ -52,7 +52,18 @@ class PromptMission extends MissionStep {
         }
 
         if (!missionStep) {
+            // Penalize reputation for ignoring an incoming communication
+            try {
+                if (this.missionStep && this.missionStep.civilization && typeof this.missionStep.civilization.reputation === 'number') {
+                    this.missionStep.civilization.reputation -= 100;
+                    if (typeof this.missionStep.civilization.applyReputationToRelationship === 'function') {
+                        this.missionStep.civilization.applyReputationToRelationship();
+                    }
+                }
+            } catch (e) {}
+
             this.missionStep.civilization.updateRelationship(RELATIONSHIP_UPDATE_MISSION_IGNORED);
+            try { if (typeof U !== 'undefined' && typeof U.saveState === 'function') U.saveState(); } catch (e) {}
             G.showPrompt(nomangle('Communication ignored. ') + this.missionStep.civilization.center.name + nomangle(' will remember that'), [{
                 'label': dismiss,
                 'action': () => G.showPrompt()

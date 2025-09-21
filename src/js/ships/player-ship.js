@@ -67,7 +67,14 @@ class PlayerShip extends Ship {
         const isStar = source instanceof Star;
 
         if (this.shield > 0) {
-            this.shield -= amount;
+            try {
+                // Scale incoming damage by the ship's shield base so upgrades increase effective HP.
+                const shieldBase = (this.baseStats && this.baseStats.maxShieldPoints) ? this.baseStats.maxShieldPoints : 100;
+                const shieldScale = Math.max(1, shieldBase / 100);
+                this.shield -= (amount / shieldScale);
+            } catch (e) {
+                this.shield -= amount;
+            }
 
             if (!isStar || (G.clock - (this.lastShieldDamage || 0)) > 0.3) {
                 this.lastShieldDamage = G.clock;
@@ -82,13 +89,55 @@ class PlayerShip extends Ship {
             V.shake(0.1);
         }
 
-        super.damage(source, amount * 0.5); // Less damage for the player
+        try {
+            const hullBase = (this.baseStats && this.baseStats.maxHullPoints) ? this.baseStats.maxHullPoints : 100;
+            const hullScale = Math.max(1, hullBase / 100);
+            super.damage(source, (amount * 0.5) / hullScale); // Less damage for the player, scaled by hull base
+        } catch (e) {
+            super.damage(source, amount * 0.5);
+        }
 
         this.nextHealing = SHIP_HEALING_DAMAGE_TIMEOUT;
     }
 
     modifyProjectile(projectile) {
         projectile.guideRadius = 100;
+        try {
+            // Compute cumulative increase matching Mod Bay rules
+            function incrementPercentForLevel(level) {
+                const next = level + 1;
+                if (next === 2) return 0.75;
+                if (next === 3) return 0.5;
+                if (next === 4) return 0.25;
+                return 0.2;
+            }
+            function cumulativeIncrease(level) {
+                let sum = 0;
+                for (let l = 1; l < level; l++) sum += incrementPercentForLevel(l);
+                return sum;
+            }
+
+            // Apply torpedo (SuperLaser) damage multiplier
+            const ctorName = (projectile && projectile.constructor && projectile.constructor.name) || '';
+            if (ctorName === 'SuperLaser') {
+                const lvl = (this.upgrades && this.upgrades.torpedos) || 1;
+                const inc = cumulativeIncrease(lvl);
+                const before = projectile.damage;
+                const after = +(before * (1 + inc)).toFixed(6);
+                projectile.damage = after;
+                try { console.debug('mod-bay: applied torpedos upgrade to SuperLaser damage', 'level', lvl, before, '->', after); } catch (e) {}
+            }
+
+            // Apply phaser (SimpleLaser) damage multiplier
+            if (ctorName === 'SimpleLaser') {
+                const lvl = (this.upgrades && this.upgrades.phasers) || 1;
+                const inc = cumulativeIncrease(lvl);
+                const before = projectile.damage;
+                const after = +(before * (1 + inc)).toFixed(6);
+                projectile.damage = after;
+                try { console.debug('mod-bay: applied phasers upgrade to SimpleLaser damage', 'level', lvl, before, '->', after); } catch (e) {}
+            }
+        } catch (e) { console.error('modifyProjectile upgrade application error', e); }
     }
 
     shipColor() {
@@ -97,7 +146,27 @@ class PlayerShip extends Ship {
 
     explode(projectile) {
         super.explode(projectile);
-        setTimeout(() => G.gameOver(), 2000);
+        // Respawn flow: preserve upgrades/baseStats but reset credits and cargo.
+        setTimeout(() => {
+            try {
+                // Persist upgrades/baseStats to storage so restoreState can pick them up
+                if (typeof U !== 'undefined' && typeof U.saveState === 'function') {
+                    try { U.saveState(); } catch (e) {}
+                }
+
+                // Create a fresh player ship (this will reset credits and cargo by design)
+                if (typeof U !== 'undefined' && typeof U.createPlayerShip === 'function') {
+                    try { U.createPlayerShip(); } catch (e) {}
+                }
+
+                // Reapply persisted upgrades/baseStats to the new ship
+                if (typeof U !== 'undefined' && typeof U.restoreState === 'function') {
+                    try { U.restoreState(); } catch (e) {}
+                }
+
+                try { G.showMessage && G.showMessage(nomangle('You have respawned. Upgrades preserved.')); } catch (e) {}
+            } catch (e) {}
+        }, 2000);
 
         if (this.thrustSound) {
             this.thrustSound.pause();

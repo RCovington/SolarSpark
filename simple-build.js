@@ -170,8 +170,9 @@ js = js.replace(/this\.bodies\.forEach\(body => wrap\(\(\) => body\.render\(\)\)
     "this.bodies.forEach(body => wrap(() => body.render()));\n        if (this.orbitalStations) this.orbitalStations.forEach(station => wrap(() => station.render()));");
 
 // Add docked ship behavior in player ship cycle method
-js = js.replace(/this\.x \+= this\.vX \* e;[\s\S]*?this\.y \+= this\.vY \* e;/g,
-    `if (this.isDocked && (this.dockedStation || this.dockedPlanet)) {
+// Restrict this replacement to the PlayerShip class block so it cannot span multiple files
+js = js.replace(/class PlayerShip[\s\S]*?\{[\s\S]*?this\.x \+= this\.vX \* e;[\s\S]*?this\.y \+= this\.vY \* e;[\s\S]*?\}/g, match => {
+    return match.replace(/this\.x \+= this\.vX \* e;[\s\S]*?this\.y \+= this\.vY \* e;/, `if (this.isDocked && (this.dockedStation || this.dockedPlanet)) {
             // Ship is docked - follow the station or planet
             const dockTarget = this.dockedStation || this.dockedPlanet;
             this.x = dockTarget.x + this.dockOffset.x;
@@ -181,6 +182,7 @@ js = js.replace(/this\.x \+= this\.vX \* e;[\s\S]*?this\.y \+= this\.vY \* e;/g,
             this.x += this.vX * e;
             this.y += this.vY * e;
         }`);
+});
 
 // Add velocity damping with docking check
 js = js.replace(/this\.vX \*= 0\.95;/g, 

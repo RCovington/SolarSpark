@@ -3,6 +3,16 @@ class Game {
     constructor() {
         G = this;
 
+        // Ensure any persisted world save is cleared before we construct the Universe
+        // so a deliberate "New Game" (or fresh page load) doesn't restore planet
+        // dispositions from a previous playthrough.
+        try {
+            if (typeof localStorage !== 'undefined') {
+                localStorage.removeItem('ss_save_v1');
+                try { console.debug('constructor: cleared persistent save before universe creation'); } catch (e) {}
+            }
+        } catch (e) { /* ignore */ }
+
         U = new Universe();
 
         V = new Camera();
@@ -175,6 +185,26 @@ class Game {
                 fs('cyan');
                 fr(100, 45, 200 * limit(0, U.playerShip.shield, 1), 10);
             });
+
+            // HUD debug: show absolute Shield and Hull current / max values as numbers
+            try {
+                R.font = '10pt ' + monoFont;
+                R.textAlign = nomangle('left');
+                fs('#fff');
+
+                // Shield: current (U.playerShip.shield) is 0..health (health normalized 0..1), but we want absolute points
+                // Use the ship's current max shield/hull (which get updated by Mod Bay) for display
+                const shieldBase = (typeof U.playerShip.maxShieldPoints === 'number') ? U.playerShip.maxShieldPoints : ((U.playerShip.baseStats && U.playerShip.baseStats.maxShieldPoints) ? U.playerShip.baseStats.maxShieldPoints : 100);
+                const shieldCurrentPoints = Math.round((U.playerShip.shield || 0) * (shieldBase));
+                const shieldText = 'Shield: ' + shieldCurrentPoints + ' / ' + (shieldBase);
+                fillText(shieldText, 310, 60);
+
+                // Hull: U.playerShip.health is 0..1, base hull points from baseStats or maxHullPoints
+                const hullBase = (typeof U.playerShip.maxHullPoints === 'number') ? U.playerShip.maxHullPoints : ((U.playerShip.baseStats && U.playerShip.baseStats.maxHullPoints) ? U.playerShip.baseStats.maxHullPoints : 100);
+                const hullCurrentPoints = Math.round((U.playerShip.health || 0) * hullBase);
+                const hullText = 'Hull: ' + hullCurrentPoints + ' / ' + (hullBase);
+                fillText(hullText, 310, 90);
+            } catch (e) { /* non-fatal HUD overlay error */ }
 
             G.renderGauge(100, 80, U.playerShip.civilization.resources / PLANET_MAX_RESOURCES, '#fff', () => {
                 R.globalAlpha = G.resourceIconAlpha;
@@ -574,6 +604,21 @@ class Game {
         const missionStep = G.missionStep;
         G.proceedToMissionStep();
 
+        // Update reputation in addition to relationship: +100 on success, -100 on failure
+        try {
+            if (missionStep && missionStep.civilization && typeof missionStep.civilization.reputation === 'number') {
+                missionStep.civilization.reputation += success ? 100 : -100;
+                // Apply the reputation mapping so a large reputation change can flip ally/enemy state
+                if (typeof missionStep.civilization.applyReputationToRelationship === 'function') {
+                    missionStep.civilization.applyReputationToRelationship();
+                }
+            }
+        } catch (e) {}
+
+        // Persist state after reputation/relationship changes
+        try { if (typeof U !== 'undefined' && typeof U.saveState === 'function') U.saveState(); } catch (e) {}
+
+        // Also apply the standard relationship delta from mission outcome
         missionStep.civilization.updateRelationship(success ? RELATIONSHIP_UPDATE_MISSION_SUCCESS : RELATIONSHIP_UPDATE_MISSION_FAILED);
 
         G.showPrompt(nomangle('Mission ') + (success ? nomangle('SUCCESS') : nomangle('FAILED')) + '. ' + missionStep.civilization.center.name + nomangle(' will remember that.'), [{
@@ -666,6 +711,15 @@ class Game {
         G.currentWarning = 0;
 
         G.gameRecap = [];
+        // Clear any persisted save when starting a fresh new game so reputation, credits, and other
+        // global state are reset. Upgrades will still be persisted for respawn via localStorage
+        // but a deliberate New Game should wipe saved state.
+        try {
+            if (typeof localStorage !== 'undefined') {
+                localStorage.removeItem('ss_save_v1');
+                try { console.debug('setupNewGame: cleared persistent save'); } catch (e) {}
+            }
+        } catch (e) { /* ignore */ }
     }
 
     currentPromptText() {

@@ -181,7 +181,41 @@ class OrbitalStation {
         
         // Use the global function to create the panel (now accepts a title first)
         if (window.createTradingPanel) {
-            window.createTradingPanel(title, playerResources, playerCredits, this.resourcesPerCredit, tradeValue, repairCost, canRepair);
+            window.createTradingPanel(title, playerResources, playerCredits, this.resourcesPerCredit, tradeValue, repairCost, canRepair, {
+                // Provide a hook for additional buttons in the trading panel UI
+                extraButtons: [{
+                        label: nomangle('Mod Bay'),
+                        onClick: () => {
+                            try {
+                                // Mark the station as pending (fallback) and dispatch a CustomEvent so
+                                // opening the Mod Bay is decoupled from direct function calls that
+                                // some extensions/content-scripts may interfere with.
+                                try { window.__SS_pendingModBayStation = this; } catch (e) {}
+                                window.dispatchEvent(new CustomEvent('solarspark:openModBay', { detail: { station: this } }));
+
+                                // Poll for the mod-bay module being loaded; if it appears, call openModBay
+                                // as a fallback. This helps when the event was dispatched before the
+                                // mod-bay listener attached.
+                                try {
+                                    let attempts = 0;
+                                    const poll = setInterval(() => {
+                                        try {
+                                            attempts++;
+                                            if (window.__SS_modBayLoaded && typeof window.openModBay === 'function') {
+                                                try { console.debug('station: polling detected mod-bay loaded, calling openModBay', attempts); } catch (e) {}
+                                                try { window.openModBay(this); } catch (e) { console.error('station: fallback openModBay error', e); }
+                                                clearInterval(poll);
+                                                try { delete window.__SS_pendingModBayStation; } catch (e) { window.__SS_pendingModBayStation = null; }
+                                                return;
+                                            }
+                                            if (attempts > 8) { clearInterval(poll); }
+                                        } catch (e) { clearInterval(poll); }
+                                    }, 60);
+                                } catch (e) {}
+                            } catch (e) { /* ignore */ }
+                        }
+                    }]
+            });
         } else {
             // Fallback to simple prompt if panel function not available
             const options = [];

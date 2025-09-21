@@ -42,6 +42,14 @@ onkeyup = e => {
         } catch (err) {
             console.log('Undock attempt error:', err && err.message);
         }
+        
+        // Debug shortcut: SHIFT + Q grants 10000 credits while in a station/planet trading interface
+        try {
+            if (character === 'q' && e.shiftKey && U && U.playerShip && U.playerShip.inTradingInterface) {
+                U.playerShip.credits = (U.playerShip.credits || 0) + 10000;
+                try { G.showMessage && G.showMessage('Granted 10000 credits (debug)'); } catch (e2) { console.log('Granted 10000 credits (debug)'); }
+            }
+        } catch (err) { /* ignore debug key errors */ }
     } catch (err) {
         // Fail silently - keyboard shouldn't break the game
         console.log('Dock/Trade attempt error:', err && err.message);

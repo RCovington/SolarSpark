@@ -108,7 +108,7 @@
     }
 
     function getShipRemainingSpace(ship) {
-        const CAP = 200;
+        const CAP = (ship && typeof ship.cargoCapacity === 'number' && ship.cargoCapacity > 0) ? ship.cargoCapacity : 200;
         return Math.max(0, CAP - getShipUsedSpace(ship));
     }
 
@@ -239,14 +239,25 @@
             const capacityIndicator = document.createElement('div');
             capacityIndicator.className = 'capacity-indicator';
             const remainingSpaceVal = getShipRemainingSpace(ship);
-            capacityIndicator.textContent = `Ship cargo remaining: ${remainingSpaceVal} units`;
+            // Show the ship's total capacity as well to make upgrades obvious
+            const totalCap = (ship && typeof ship.cargoCapacity === 'number' && ship.cargoCapacity > 0) ? ship.cargoCapacity : 200;
+            capacityIndicator.textContent = `Ship cargo remaining: ${remainingSpaceVal} / ${totalCap} units`;
             // Also show ship credits above the listings
             const creditsIndicator = document.createElement('div');
             creditsIndicator.className = 'credits-indicator';
             creditsIndicator.textContent = `Ship credits: ${ship && ship.credits ? ship.credits : 0} cr`;
+            // Show reputation with this planet if available
+            const reputationIndicator = document.createElement('div');
+            reputationIndicator.className = 'reputation-indicator';
+            try {
+                const rep = planet && planet.civilization && typeof planet.civilization.reputation === 'number' ? planet.civilization.reputation : 0;
+                const sign = rep > 0 ? '+' : '';
+                reputationIndicator.textContent = `Reputation: ${sign}${rep}`;
+            } catch (e) { reputationIndicator.textContent = 'Reputation: 0'; }
             if (firstSection) {
                 firstSection.insertBefore(creditsIndicator, firstSection.firstChild);
                 firstSection.insertBefore(capacityIndicator, creditsIndicator.nextSibling);
+                firstSection.insertBefore(reputationIndicator, capacityIndicator.nextSibling);
             }
 
             // Attach Buy controls next to each market row
@@ -463,7 +474,7 @@
                     try {
                         const priceEl = document.createElement('span');
                         priceEl.className = 'inv-price-el';
-                        priceEl.textContent = `${pe.price} cr`;
+                        priceEl.textContent = `${pe.price} cr/unit`;
 
                         // Tooltip handlers (reuse logic similar to market rows)
                         priceEl.addEventListener('mouseenter', (ev) => {
@@ -520,7 +531,7 @@
                         // Append the price element plus Sell button to the inventory section row
                         const row = document.createElement('div');
                         row.className = 'info-row';
-                        row.innerHTML = `<span>${pe.name}</span>`;
+                        row.innerHTML = `<span>${pe.name} (${pe.units} units)</span>`;
                         row.appendChild(priceEl);
 
                         const sellBtn = document.createElement('button');
