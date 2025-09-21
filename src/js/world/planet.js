@@ -100,26 +100,34 @@ class Planet extends Body {
             this.evolve();
         }
 
-        // Show HUD prompt when player is within reach to allow trading, but only if planet is friendly
+        // Show HUD prompt when player is within reach: unified prompt for friendly planets (Dock + Accept when offer present)
         try {
             const playerDistance = dist(this, U.playerShip);
             const friendly = this.civilization && this.civilization.relationshipType && this.civilization.relationshipType() === RELATIONSHIP_ALLY;
-            if (friendly) {
-                if (playerDistance < this.reachRadius && !this.showingTradePrompt) {
-                    this.showingTradePrompt = true;
-                    const title = (this.name || 'Unknown') + ' - Planetary Trade';
-                    G.showPrompt(`${title}\nPress [D] to trade`);
-                } else if (playerDistance >= this.reachRadius && this.showingTradePrompt) {
-                    this.showingTradePrompt = false;
-                    G.showPrompt();
+
+            if (playerDistance < this.reachRadius && !this.showingPlanetPrompt) {
+                this.showingPlanetPrompt = true;
+                const title = (this.name || 'Unknown');
+
+                if (friendly) {
+                    if (this.hasOffer) {
+                        // Friendly planet with an incoming communication: show both Dock and Accept
+                        G.showPrompt(`${title}\nPress [D] to dock\nPress [A] to accept incoming communication`);
+                    } else {
+                        // Friendly planet with no offer: show trade hint only
+                        G.showPrompt(`${title} - Planetary Trade\nPress [D] to trade`);
+                    }
+                } else {
+                    // Non-friendly planets: only show incoming communication hint if there's an offer
+                    if (this.hasOffer) {
+                        G.showPrompt(`${title}\nPress [A] to receive incoming communication`);
+                    }
                 }
-            } else {
-                // If no longer friendly, clear any prompt
-                if (this.showingTradePrompt) {
-                    this.showingTradePrompt = false;
-                    G.showPrompt();
-                }
+            } else if (playerDistance >= this.reachRadius && this.showingPlanetPrompt) {
+                this.showingPlanetPrompt = false;
+                G.showPrompt();
             }
+            // note: accepting/ignoring offers or docking will clear offers or present other prompts as necessary elsewhere
         } catch (e) {
             // ignore if U.playerShip not available yet
         }
@@ -234,6 +242,37 @@ class Planet extends Body {
             rotate(this.angle);
             drawImage(this.asset(), -this.asset().width / 2, -this.asset().height / 2);
         });
+
+        // Draw an Incoming Communication icon if this planet currently has an offer
+        try {
+            if (this.hasOffer) {
+                wrap(() => {
+                    // draw a yellow triangle with a black exclamation mark centered on the planet
+                    const size = Math.max(12, Math.min(24, ~~(this.radius / 2)));
+                    fs('#ffd700');
+                    R.strokeStyle = '#000';
+                    R.lineWidth = 2;
+                    beginPath();
+                    moveTo(0, -size);
+                    lineTo(-size, size);
+                    lineTo(size, size);
+                    closePath();
+                    fill();
+                    stroke();
+
+                    // exclamation mark
+                    fs('#000');
+                    // narrow vertical bar
+                    const barH = ~~(size * 0.6);
+                    const barW = Math.max(2, ~~(size * 0.12));
+                    fr(-barW/2, -barH/2, barW, barH);
+                    // dot
+                    beginPath();
+                    arc(0, barH/2 + 2, Math.max(1.5, barW), 0, TWO_PI);
+                    fill();
+                });
+            }
+        } catch (e) { /* ignore rendering errors */ }
 
         wrap(() => {
             rotate(this.orbitPhase);

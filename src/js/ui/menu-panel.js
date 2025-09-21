@@ -20,6 +20,57 @@
     z-index: 10000;
     box-shadow: 0 0 20px rgba(0, 255, 255, 0.3);
 }
+    /* Panel header inline message */
+    .menu-panel .panel-message, #menu-panel .panel-message, #trading-panel .panel-message {
+        color: #f88;
+        margin-top: 6px;
+        min-height: 18px;
+        transition: opacity 0.25s ease;
+        opacity: 1;
+    }
+    .menu-panel .panel-message:empty, #menu-panel .panel-message:empty, #trading-panel .panel-message:empty { opacity: 0; }
+
+    /* Shared price tooltip */
+    .menu-panel .price-tooltip, #menu-panel .price-tooltip, #trading-panel .price-tooltip {
+        position: absolute;
+        pointer-events: none;
+        background: rgba(0,0,0,0.85);
+        color: #fff;
+        padding: 6px 8px;
+        border-radius: 4px;
+        font-size: 12px;
+        z-index: 9999;
+        display: none;
+        white-space: nowrap;
+        box-shadow: 0 0 8px rgba(0,0,0,0.6);
+        transition: opacity 0.08s ease;
+    }
+
+    /* Price elements */
+    .menu-panel .price-el, #menu-panel .price-el, #trading-panel .price-el,
+    .menu-panel .inv-price-el, #menu-panel .inv-price-el, #trading-panel .inv-price-el {
+        margin-left: 8px;
+        font-weight: bold;
+    }
+
+    /* Buy controls and qty UI */
+    .menu-panel .controls, #menu-panel .controls, #trading-panel .controls { margin-left: 8px; }
+    .menu-panel .qty-wrapper, #menu-panel .qty-wrapper, #trading-panel .qty-wrapper { display: none; align-items: center; }
+    .menu-panel .qty-wrapper.open, #menu-panel .qty-wrapper.open, #trading-panel .qty-wrapper.open { display: inline-flex; }
+    .menu-panel .qty-input, #menu-panel .qty-input, #trading-panel .qty-input { width: 48px; margin-right: 4px; font-family: monospace; }
+    .menu-panel .controls button, #menu-panel .controls button, #trading-panel .controls button { margin-right: 6px; }
+
+    /* Utility classes */
+    .menu-panel .hidden, #menu-panel .hidden, #trading-panel .hidden { display: none !important; }
+    .menu-panel .sell-btn, #menu-panel .sell-btn, #trading-panel .sell-btn { margin-left: 8px; }
+
+    /* Capacity & credits indicators */
+    .menu-panel .capacity-indicator, #menu-panel .capacity-indicator, #trading-panel .capacity-indicator,
+    .menu-panel .credits-indicator, #menu-panel .credits-indicator, #trading-panel .credits-indicator {
+        margin: 6px 0 12px 0;
+        font-weight: bold;
+        color: #ffd;
+    }
 .menu-panel h2, #menu-panel h2, #trading-panel h2 { color: #00ffff; text-align: center; margin: 0 0 12px 0; font-size: 18px; }
 .menu-panel .section, #menu-panel .section, #trading-panel .section { margin-bottom: 12px; padding: 10px; background: rgba(0,0,0,0.3); border-radius: 5px; }
 .menu-panel .section h3, #menu-panel .section h3, #trading-panel .section h3 { color: #ffff00; margin: 0 0 8px 0; font-size: 14px; }

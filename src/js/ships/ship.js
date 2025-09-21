@@ -184,35 +184,62 @@ class Ship {
         // Drop raw resources
         U.dropResources(this.x, this.y, 10);
 
-        // If this ship qualifies, drop a cargo item (random type, 1-20 units)
+        // If this ship qualifies, perform drop checks: 1/3 chance to drop cargo, 1/3 chance to drop credits
         try {
             if (shouldDropCargo) {
-                // Choose a cargo type (random) from CARGO_DATA if available, otherwise fallback name
-                let cargoName = 'Cryogenic Embryos';
-                let units = 1 + Math.floor(Math.random() * 20); // 1-20 units
-                try {
-                    if (typeof CARGO_DATA !== 'undefined' && Array.isArray(CARGO_DATA) && CARGO_DATA.length) {
-                        const idx = Math.floor(Math.random() * CARGO_DATA.length);
-                        const def = CARGO_DATA[idx];
-                        if (def && def.cargo) cargoName = def.cargo;
+                // chance to drop cargo based on configured constant
+                if (typeof DROP_CARGO_PROBABILITY !== 'undefined' ? (Math.random() < DROP_CARGO_PROBABILITY) : (Math.random() < (1/3))) {
+                    // Choose a cargo type (random) from CARGO_DATA if available, otherwise fallback name
+                    let cargoName = 'Cryogenic Embryos';
+                    let units = 1 + Math.floor(Math.random() * 20); // 1-20 units
+                    try {
+                        if (typeof CARGO_DATA !== 'undefined' && Array.isArray(CARGO_DATA) && CARGO_DATA.length) {
+                            const idx = Math.floor(Math.random() * CARGO_DATA.length);
+                            const def = CARGO_DATA[idx];
+                            if (def && def.cargo) cargoName = def.cargo;
+                        }
+                    } catch (e) {
+                        // ignore and use fallback
                     }
-                } catch (e) {
-                    // ignore and use fallback
+
+                    // Ensure the CargoItem class is available (it should be included in build)
+                    if (typeof CargoItem !== 'undefined') {
+                        console.log('Dropping CargoItem', cargoName, units, 'at', this.x, this.y);
+                        U.items.push(new CargoItem(this.x, this.y, cargoName, units));
+                    } else {
+                        // Fallback: create a ResourceItem if CargoItem not present
+                        console.log('CargoItem not defined, dropping ResourceItem as fallback');
+                        U.items.push(new ResourceItem(this.x, this.y));
+                    }
                 }
 
-                // Ensure the CargoItem class is available (it should be included in build)
-                if (typeof CargoItem !== 'undefined') {
-                    console.log('Dropping CargoItem', cargoName, units, 'at', this.x, this.y);
-                    U.items.push(new CargoItem(this.x, this.y, cargoName, units));
-                } else {
-                    // Fallback: create a ResourceItem if CargoItem not present
-                    console.log('CargoItem not defined, dropping ResourceItem as fallback');
-                    U.items.push(new ResourceItem(this.x, this.y));
+                // Independently, chance to drop credits based on configured constant
+                if (typeof DROP_CREDIT_PROBABILITY !== 'undefined' ? (Math.random() < DROP_CREDIT_PROBABILITY) : (Math.random() < (1/3))) {
+                    try {
+                        // Compute base credit amount
+                        const baseMin = (typeof CREDIT_BASE_MIN !== 'undefined') ? CREDIT_BASE_MIN : 10;
+                        const baseMax = (typeof CREDIT_BASE_MAX !== 'undefined') ? CREDIT_BASE_MAX : 99;
+                        const randBase = baseMin + Math.floor(Math.random() * Math.max(1, (baseMax - baseMin + 1)));
+
+                        // Scale by ship radius (proxy for size/level)
+                        const scaleFactor = (typeof CREDIT_SCALE_PER_RADIUS !== 'undefined') ? CREDIT_SCALE_PER_RADIUS : 0.1;
+                        const scaled = Math.round(randBase + (this.radius * scaleFactor));
+
+                        const amount = Math.max(baseMin, scaled);
+
+                        if (typeof CreditItem !== 'undefined') {
+                            U.items.push(new CreditItem(this.x, this.y, amount));
+                        } else {
+                            U.items.push(new ResourceItem(this.x, this.y));
+                        }
+                    } catch (e) {
+                        U.items.push(new ResourceItem(this.x, this.y));
+                    }
                 }
             }
         } catch (e) {
             // ignore errors here to avoid crashing on explosion
-            console.error('Error dropping cargo item:', e);
+            console.error('Error dropping cargo/credits items:', e);
         }
     }
 

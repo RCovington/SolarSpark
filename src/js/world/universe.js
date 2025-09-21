@@ -20,6 +20,7 @@ class Universe {
 
         // setTimeout(() => this.generateUniverse(), 0);
         this.nextAsteroid = 0;
+        this.offerRefreshTimer = 0;
     }
 
     createPlayerShip() {
@@ -33,7 +34,54 @@ class Universe {
             this.randomAsteroid();
         }
 
+
+        // Remove expired offers first
+        try {
+            const planetsForExpiry = this.bodies.filter(b => b instanceof Planet && b.hasOffer && b.offerExpires);
+            planetsForExpiry.forEach(p => {
+                if (typeof G !== 'undefined' && G.clock >= p.offerExpires) {
+                    p.hasOffer = false;
+                    p.offerExpires = null;
+                }
+            });
+        } catch (e) { /* ignore */ }
+
+        // Periodically generate new offers (~every 10 minutes)
+        if ((this.offerRefreshTimer -= e) <= 0) {
+            this.offerRefreshTimer = 600; // 600s = 10 minutes
+            this.refreshOffers();
+        }
+
         this.forEach([this.bodies, this.ships, this.items, this.projectiles, [V]], element => element.cycle(e));
+    }
+
+    refreshOffers() {
+        try {
+            const planets = this.bodies.filter(b => b instanceof Planet);
+            if (!planets.length) return;
+
+            // Number of offers to generate on this refresh (approx 1/3 of planets)
+            const count = Math.max(1, Math.floor(planets.length / 3));
+
+            // Only assign offers to planets that don't already have one
+            const available = planets.filter(p => !p.hasOffer);
+            if (!available.length) return;
+
+            // Shuffle available planets
+            const idx = available.map((_, i) => i);
+            for (let i = idx.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                const t = idx[i]; idx[i] = idx[j]; idx[j] = t;
+            }
+
+            const now = (typeof G !== 'undefined' && G.clock) ? G.clock : 0;
+            for (let k = 0; k < Math.min(count, idx.length); k++) {
+                const p = available[idx[k]];
+                p.hasOffer = true;
+                // Offer persists for 10 minutes (600s)
+                p.offerExpires = now + 600;
+            }
+        } catch (e) { /* ignore */ }
     }
 
     randomAsteroid() {
@@ -149,6 +197,13 @@ class Universe {
                 );
             }
         }
+
+        // After generating bodies, immediately seed offers so players see messages right away
+        try {
+            this.refreshOffers();
+            // set the refresh timer so we don't immediately regenerate on the next cycle
+            this.offerRefreshTimer = 600;
+        } catch (e) { /* ignore */ }
     }
 
     // debugView() {

@@ -128,9 +128,9 @@ js = js.replace(/gameOver\(\) \{/g, livesSystemCode + '\n    gameOver() {');
 // Add lives rendering to the main render cycle - find a better location to insert it
 js = js.replace(/G\.renderGauge\(100, 45, U\.playerShip\.shield, G\.healthGaugeColor/g, 'G.renderLives();\n\n            G.renderGauge(100, 45, U.playerShip.shield, G.healthGaugeColor');
 
-// Reduce mission frequency by about half
-js = js.replace(/G\.nextMission = 20;/g, 'G.nextMission = 40;');
-js = js.replace(/G\.nextMission = G\.startedOnce \? 20 : 9;/g, 'G.nextMission = G.startedOnce ? 40 : 18;');
+// Reduce mission frequency by about tenfold (keep in sync with src changes)
+js = js.replace(/G\.nextMission = 20;/g, 'G.nextMission = 200;');
+js = js.replace(/G\.nextMission = G\.startedOnce \? 20 : 9;/g, 'G.nextMission = G.startedOnce ? 200 : 90;');
 
 // Make planetary defenses peaceful by default
 // Change station colors from red to green/yellow based on relationship

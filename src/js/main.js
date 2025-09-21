@@ -45,4 +45,36 @@ onload = () => {
         requestAnimationFrame(frame);
     };
     frame();
+
+    // Click handling: map canvas clicks to world coordinates and check for planet offer icons
+    const canvas = document.querySelector('canvas');
+    canvas.addEventListener('click', (ev) => {
+        try {
+            const rect = canvas.getBoundingClientRect();
+            const x = (ev.clientX - rect.left) / rect.width;
+            const y = (ev.clientY - rect.top) / rect.height;
+
+            // Convert to world coordinates
+            const worldX = (x * CANVAS_WIDTH - CANVAS_WIDTH / 2) / V.zoomScale + V.x;
+            const worldY = (y * CANVAS_HEIGHT - CANVAS_HEIGHT / 2) / V.zoomScale + V.y;
+
+            // Find planets near the click
+            let clickedPlanet = null;
+            U.bodies.forEach(body => {
+                if (body instanceof Planet) {
+                    const d = Math.sqrt((body.x - worldX) * (body.x - worldX) + (body.y - worldY) * (body.y - worldY));
+                    if (d <= body.radius + 8 && body.hasOffer) {
+                        clickedPlanet = body;
+                    }
+                }
+            });
+
+            if (clickedPlanet) {
+                // Trigger incoming communication / mission prompt for that planet
+                if (G && typeof G.promptMissionFromPlanet === 'function') {
+                    G.promptMissionFromPlanet(clickedPlanet);
+                }
+            }
+        } catch (e) { /* ignore click errors */ }
+    });
 };

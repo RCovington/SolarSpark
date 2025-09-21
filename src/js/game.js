@@ -40,7 +40,8 @@ class Game {
         }
 
         G.missionStep = missionStep;
-        G.nextMission = 20;
+    // Mission timer: increase baseline so missions come roughly 1/10th as often
+    G.nextMission = 200;
 
         G.showPrompt();
 
@@ -546,6 +547,29 @@ class Game {
 
     }
 
+    // Prompt a mission specifically for a given planet (used when player clicks the offer icon)
+    promptMissionFromPlanet(planet) {
+        try {
+            if (!planet || !planet.civilization || G.missionStep) return;
+
+            // Choose a mission similar to promptRandomMission but anchored to the clicked planet
+            const close = body => between(1000, dist(body, planet), 10000);
+            const otherPlanets = () => U.bodies.filter(body => body.orbitsAround).filter(close);
+            const otherPlanetAndStars = () => otherPlanets().concat(U.stars.filter(close));
+
+            const missionStep = pick([
+                new AttackPlanet(pick(otherPlanets())),
+                new StudyBody(pick(otherPlanetAndStars())),
+                new CollectResources(),
+                new Asteroids(),
+                new Pirates()
+            ]);
+            missionStep.civilization = planet.civilization;
+
+            G.proceedToMissionStep(new PromptMission(missionStep));
+        } catch (e) { /* ignore */ }
+    }
+
     missionDone(success) {
         const missionStep = G.missionStep;
         G.proceedToMissionStep();
@@ -565,6 +589,14 @@ class Game {
 
         U.createPlayerShip();
 
+        // Ensure some planet offers exist when the player starts
+        try {
+            if (typeof U !== 'undefined' && typeof U.refreshOffers === 'function') {
+                U.refreshOffers();
+                U.offerRefreshTimer = 600;
+            }
+        } catch (e) { /* ignore */ }
+
         interp(G, 'titleYOffset', 0, -CANVAS_HEIGHT, 0.3);
 
         if (!G.startedOnce) {
@@ -572,7 +604,8 @@ class Game {
             setTimeout(() => G.proceedToMissionStep(new PromptTutorialStep()), 3000);
         }
 
-        G.nextMission = G.startedOnce ? 20 : 9;
+    // Increase mission cadence baseline for less frequent incoming communications
+    G.nextMission = G.startedOnce ? 200 : 90;
         G.started = G.startedOnce = true;
 
         introSound();

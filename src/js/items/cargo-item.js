@@ -61,8 +61,9 @@ class CargoItem extends Item {
     }
 
     pickUp(ship) {
-        // Award flat credit bonus
-        ship.credits = (ship.credits || 0) + 100;
+    // Award a random credit bonus between 0 and 99
+    const creditBonus = Math.floor(Math.random() * 100);
+    ship.credits = (ship.credits || 0) + creditBonus;
 
         // Ensure ship cargo map exists
         ship.cargo = ship.cargo || {};
@@ -90,14 +91,25 @@ class CargoItem extends Item {
             ship.cargo[this.cargoName] = (ship.cargo[this.cargoName] || 0) + toAccept;
         }
 
-        let msg = `Picked up ${this.cargoName} (+100 credits)`;
+    // Show the total units that were collected from the wreck in the main prompt
+    const collectedUnits = this.units || 0;
+    let msg = `Picked up ${collectedUnits} ${this.cargoName} (+${creditBonus} credits)`;
         if (toAccept > 0 && toAccept < this.units) {
             msg += ` — stored ${toAccept}/${this.units} units (ship full)`;
         } else if (toAccept === 0) {
             msg += ' — no cargo space available';
         }
 
-        G.showMessage(nomangle(msg));
+        // Show pickup details as a prompt (typed bottom-of-screen) rather than a banner
+        try {
+            if (typeof G !== 'undefined' && G.showPrompt) {
+                G.showPrompt(nomangle(msg));
+            } else {
+                G.showMessage(nomangle(msg));
+            }
+        } catch (e) {
+            try { G.showMessage(nomangle(msg)); } catch (e2) { /* ignore */ }
+        }
         pickupSound();
     }
 

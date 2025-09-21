@@ -1,5 +1,7 @@
 // Wrapper to create a Planetary Trade panel using createMenuPanel
 (function(){
+    // Clean, shared message constants to avoid accidental hidden characters in literals
+    const NO_CARGO_SPACE_MSG = 'Not enough credits or cargo space';
     // Compute and persist a price for a cargo item on a per-planet basis (base value +/-20%)
     function getPlanetPrice(planet, cargoName) {
         try {
@@ -66,13 +68,15 @@
 
         if (ship.cargo && typeof ship.cargo === 'object' && Object.keys(ship.cargo).length) {
             Object.keys(ship.cargo).forEach(k => {
+                const units = ship.cargo[k] || 0;
+                if (!units || units <= 0) return; // skip zero-unit entries
                 let price = Math.max(1, Math.floor(3 + (Math.random() * 5)));
                 try {
                     if (planet) {
                         price = getPlanetPrice(planet, k);
                     }
                 } catch (e) {}
-                entries.push({ name: k, units: ship.cargo[k], price });
+                entries.push({ name: k, units: units, price });
             });
         } else if (ship.civilization && ship.civilization.resources) {
             entries.push({ name: 'Raw Materials', units: ship.civilization.resources, price: 1 });
@@ -150,11 +154,9 @@
         sections.push({ html: cargoHtml });
 
         // Player inventory section
-        const invRows = [];
-        playerEntries.forEach(pe => {
-            invRows.push({ label: pe.name, value: `${pe.units} units @ ${pe.price} cr` });
-        });
-        sections.push({ title: 'INVENTORY', rows: invRows });
+        // Inventory section will be populated dynamically after panel creation so we can attach
+        // interactive Sell buttons and tooltips. Start with an empty section placeholder.
+        sections.push({ title: 'INVENTORY', rows: [] });
 
         // Buttons: Leave button
         const buttons = [];
@@ -175,14 +177,11 @@
 
         // Insert a header-level panel message element under the title for inline messages
         try {
-            if (panel) {
+                    if (panel) {
                 const titleEl = panel.querySelector('h2');
                 if (titleEl && !panel.querySelector('.panel-message')) {
                     const headerMsg = document.createElement('div');
                     headerMsg.className = 'panel-message';
-                    headerMsg.style.color = '#f88';
-                    headerMsg.style.marginTop = '6px';
-                    headerMsg.style.minHeight = '18px';
                     titleEl.insertAdjacentElement('afterend', headerMsg);
                 }
             }
@@ -221,6 +220,16 @@
             }
         } catch (e) { /* ignore */ }
 
+        // Create a single shared price tooltip element attached to the panel. Using one shared tooltip
+        // avoids tooltip elements lingering when moving between price elements.
+        try {
+            if (panel && !panel.querySelector('.price-tooltip')) {
+                const sharedTooltip = document.createElement('div');
+                sharedTooltip.className = 'price-tooltip';
+                panel.appendChild(sharedTooltip);
+            }
+        } catch (e) { /* ignore */ }
+
         // Attach Buy buttons for planet offerings and Sell buttons for player inventory
         try {
             const firstSection = panel.querySelector('.section'); // planet offerings
@@ -228,16 +237,12 @@
 
             // Add remaining cargo capacity indicator in the header area
             const capacityIndicator = document.createElement('div');
-            capacityIndicator.style.margin = '6px 0 12px 0';
-            capacityIndicator.style.fontWeight = 'bold';
-            capacityIndicator.style.color = '#ffd';
+            capacityIndicator.className = 'capacity-indicator';
             const remainingSpaceVal = getShipRemainingSpace(ship);
             capacityIndicator.textContent = `Ship cargo remaining: ${remainingSpaceVal} units`;
             // Also show ship credits above the listings
             const creditsIndicator = document.createElement('div');
-            creditsIndicator.style.margin = '6px 0 6px 0';
-            creditsIndicator.style.fontWeight = 'bold';
-            creditsIndicator.style.color = '#ffd';
+            creditsIndicator.className = 'credits-indicator';
             creditsIndicator.textContent = `Ship credits: ${ship && ship.credits ? ship.credits : 0} cr`;
             if (firstSection) {
                 firstSection.insertBefore(creditsIndicator, firstSection.firstChild);
@@ -250,42 +255,123 @@
                 rows.forEach(row => {
                     const idx = parseInt(row.getAttribute('data-market-index'), 10);
 
+                    // Replace the price text with a price element that shows a tooltip on hover
+                    try {
+                        const spans = row.querySelectorAll('span');
+                        const priceSpan = spans && spans[1];
+                        if (priceSpan) {
+                            const marketItem = planetOfferings[idx];
+                            const priceEl = document.createElement('span');
+                            priceEl.className = 'price-el';
+                            priceEl.style.marginLeft = '8px';
+                            priceEl.style.fontWeight = 'bold';
+                            priceEl.textContent = (marketItem && marketItem.price ? marketItem.price : 0) + ' cr/unit';
+
+                            function formatTooltip(cargoName, price) {
+                                const def = getCargoDefByName(cargoName) || {};
+                                const base = def.value || price || 1;
+                                const pct = Math.round((price - base) / base * 100);
+                                let pctText = '';
+                                if (pct === 0) {
+                                    pctText = '';
+                                } else if (pct > 0) {
+                                    pctText = '+' + pct + '%';
+                                } else {
+                                    pctText = pct + '%';
+                                }
+
+                                // Build tooltip DOM with colored percent span
+                                // For planet offerings: a lower price (negative pct) is good for the player,
+                                // so negative percentages should be blue/green. Positive pct (more expensive)
+                                // should be highlighted as yellow/orange.
+                                let color = '#fff';
+                                if (pct < 0) {
+                                    if (pct <= -11) color = '#66ff66'; // green (very cheap)
+                                    else color = '#66c2ff'; // blue (cheap)
+                                } else if (pct > 0) {
+                                    if (pct >= 11) color = '#ff9900'; // orange (very expensive)
+                                    else color = '#ffd700'; // yellow (expensive)
+                                }
+
+                                if (pct === 0) {
+                                    return `${base} = ${price}`;
+                                }
+
+                                // Example: "45+19%=54" with percent colored
+                                // We'll wrap the percent in a span so we can color it
+                                return `<span>${base}</span><span style=\"margin:0 6px;color:${color};\">${pctText}</span><span>=${price}</span>`;
+                            }
+
+                            // Mouse handlers
+                            let hideTimer = null;
+                            priceEl.addEventListener('mouseenter', (ev) => {
+                                try { ev.stopPropagation(); } catch (e) {}
+                                if (hideTimer) { clearTimeout(hideTimer); hideTimer = null; }
+                                const marketItemNow = planetOfferings[idx];
+                                const price = marketItemNow && marketItemNow.price ? marketItemNow.price : 0;
+                                const t = panel.querySelector('.price-tooltip');
+                                if (!t) return;
+                                t.innerHTML = formatTooltip(marketItemNow && marketItemNow.name, price);
+                                t.style.display = 'block';
+                                const rect = panel.getBoundingClientRect();
+                                t.style.left = Math.min(panel.clientWidth - 10, (ev.pageX - rect.left) + 12) + 'px';
+                                t.style.top = Math.max(6, (ev.pageY - rect.top) - 24) + 'px';
+                            });
+                            priceEl.addEventListener('mousemove', (ev) => {
+                                try { ev.stopPropagation(); } catch (e) {}
+                                const t = panel.querySelector('.price-tooltip');
+                                if (!t) return;
+                                const rect = panel.getBoundingClientRect();
+                                t.style.left = Math.min(panel.clientWidth - 10, (ev.pageX - rect.left) + 12) + 'px';
+                                t.style.top = Math.max(6, (ev.pageY - rect.top) - 24) + 'px';
+                            });
+                            priceEl.addEventListener('mouseleave', (ev) => {
+                                try { ev.stopPropagation(); } catch (e) {}
+                                const t = panel.querySelector('.price-tooltip');
+                                if (!t) return;
+                                if (hideTimer) clearTimeout(hideTimer);
+                                hideTimer = setTimeout(() => { t.style.display = 'none'; hideTimer = null; }, 50);
+                            });
+
+                            // Replace original price span with interactive one
+                            priceSpan.parentNode.replaceChild(priceEl, priceSpan);
+                        }
+                    } catch (e) { /* ignore tooltip injection errors */ }
+
                     const controls = document.createElement('span');
-                    controls.style.marginLeft = '8px';
+                    controls.className = 'controls';
 
                     const buyBtn = document.createElement('button');
                     // Ensure button does not act as a form submit and avoid bubbling to page-level handlers/extensions
                     buyBtn.type = 'button';
                     buyBtn.textContent = 'Buy';
-                    buyBtn.style.marginRight = '6px';
 
                     // Inline quantity UI (hidden initially)
                     const qtyWrapper = document.createElement('span');
-                    qtyWrapper.style.display = 'none';
-                    qtyWrapper.style.alignItems = 'center';
+                    qtyWrapper.className = 'qty-wrapper';
 
                     const minus = document.createElement('button');
                     minus.textContent = '-';
-                    minus.style.marginRight = '4px';
+                    minus.className = 'qty-minus';
                     const qtyInput = document.createElement('input');
                     qtyInput.type = 'number';
                     qtyInput.value = '1';
                     qtyInput.min = '1';
-                    qtyInput.style.width = '48px';
-                    qtyInput.style.marginRight = '4px';
+                    qtyInput.className = 'qty-input';
                     const plus = document.createElement('button');
                     plus.textContent = '+';
-                    plus.style.marginRight = '8px';
+                    plus.className = 'qty-plus';
 
                     const maxBtn = document.createElement('button');
                     maxBtn.textContent = 'Max';
-                    maxBtn.style.marginRight = '8px';
+                    maxBtn.className = 'qty-max';
 
                     const confirmBtn = document.createElement('button');
                     confirmBtn.textContent = 'Confirm';
-                    confirmBtn.style.marginRight = '4px';
+                    confirmBtn.className = 'qty-confirm';
                     const cancelBtn = document.createElement('button');
                     cancelBtn.textContent = 'Cancel';
+                    cancelBtn.className = 'qty-cancel';
 
                     qtyWrapper.appendChild(minus);
                     qtyWrapper.appendChild(qtyInput);
@@ -312,15 +398,15 @@
                         const maxAllowed = Math.max(0, Math.min(maxByStock, maxByCredits, maxBySpace));
 
                         if (maxAllowed <= 0) {
-                            if (typeof setPanelMessage === 'function') setPanelMessage('Not enough credits or cargo space'); else { const panelMsg = panel.querySelector('.panel-message'); if (panelMsg) { panelMsg.textContent = 'Not enough credits or cargo space'; } else { G.showMessage('Not enough credits or cargo space'); } }
+                            if (typeof setPanelMessage === 'function') setPanelMessage(NO_CARGO_SPACE_MSG); else { const panelMsg = panel.querySelector('.panel-message'); if (panelMsg) { panelMsg.textContent = NO_CARGO_SPACE_MSG; } else { G.showMessage(NO_CARGO_SPACE_MSG); } }
                             return;
                         }
 
                         // Show quantity controls and set limits
                         qtyInput.max = String(maxAllowed);
                         qtyInput.value = '1';
-                        qtyWrapper.style.display = 'inline-flex';
-                        buyBtn.style.display = 'none';
+                        qtyWrapper.classList.add('open');
+                        buyBtn.classList.add('hidden');
 
                         // Wire quantity controls with event suppression
                         minus.type = 'button';
@@ -335,8 +421,8 @@
 
                         cancelBtn.addEventListener('click', (ev) => {
                             try { ev.preventDefault(); ev.stopPropagation(); ev.stopImmediatePropagation(); } catch(e){}
-                            qtyWrapper.style.display = 'none';
-                            buyBtn.style.display = 'inline-block';
+                            qtyWrapper.classList.remove('open');
+                            buyBtn.classList.remove('hidden');
                         });
 
                         confirmBtn.addEventListener('click', (ev) => {
@@ -366,32 +452,104 @@
 
             if (invSection) {
                 const entries = playerEntries;
-                entries.forEach((pe, i) => {
-                    const sellBtn = document.createElement('button');
-                    sellBtn.type = 'button';
-                    sellBtn.textContent = `Sell ${pe.name}`;
-                    sellBtn.style.marginLeft = '8px';
-                    sellBtn.addEventListener('click', (ev) => {
-                        try { ev.preventDefault(); ev.stopPropagation(); ev.stopImmediatePropagation(); } catch(e) {}
-                        // Simple sell logic: remove all units and add credits = units * price
-                        const units = pe.units || 0;
-                        const total = units * pe.price;
-                        if (units > 0) {
-                            // Deduct from ship
-                            if (ship.cargo && ship.cargo[pe.name] !== undefined) {
-                                ship.cargo[pe.name] = 0;
-                            } else if (ship.civilization && ship.civilization.resources) {
-                                ship.civilization.resources = 0;
-                            }
-                            ship.credits = (ship.credits || 0) + total;
-                            G.showMessage('Sold ' + units + ' ' + pe.name + ' for ' + total + ' credits');
 
-                            // Refresh the panel: remove and recreate (keep dock state)
-                            panel.remove();
-                            window.createPlanetaryTradePanel(planet, ship);
-                        }
-                    });
-                    invSection.appendChild(sellBtn);
+                // Remove any existing informational rows in the inventory section to avoid duplicates
+                try {
+                    const existingRows = invSection.querySelectorAll('.info-row');
+                    existingRows.forEach(r => r.remove());
+                } catch (e) { /* ignore */ }
+                entries.forEach((pe, i) => {
+                    // Create price element with hover tooltip for comparison
+                    try {
+                        const priceEl = document.createElement('span');
+                        priceEl.className = 'inv-price-el';
+                        priceEl.textContent = `${pe.price} cr`;
+
+                        // Tooltip handlers (reuse logic similar to market rows)
+                        priceEl.addEventListener('mouseenter', (ev) => {
+                            try { ev.stopPropagation(); } catch (e) {}
+                            const t = panel.querySelector('.price-tooltip') || (function(){
+                                const tmp = document.createElement('div');
+                                tmp.className = 'price-tooltip';
+                                tmp.style.position = 'absolute';
+                                tmp.style.pointerEvents = 'none';
+                                tmp.style.background = 'rgba(0,0,0,0.85)';
+                                tmp.style.color = '#fff';
+                                tmp.style.padding = '6px 8px';
+                                tmp.style.borderRadius = '4px';
+                                tmp.style.fontSize = '12px';
+                                tmp.style.zIndex = 9999;
+                                tmp.style.display = 'none';
+                                tmp.style.whiteSpace = 'nowrap';
+                                panel.appendChild(tmp);
+                                return tmp;
+                            })();
+                            const def = getCargoDefByName(pe.name) || {};
+                            const base = def.value || pe.price || 1;
+                            const pct = Math.round((pe.price - base) / base * 100);
+                            let color = '#fff';
+                            if (pct < 0) {
+                                color = pct <= -11 ? '#ff9900' : '#ffd700';
+                            } else if (pct > 0) {
+                                color = pct >= 11 ? '#66ff66' : '#66c2ff';
+                            }
+                            const pctText = pct === 0 ? '' : (pct > 0 ? '+' + pct + '%' : pct + '%');
+                            if (pct === 0) {
+                                t.innerHTML = `${base} = ${pe.price}`;
+                            } else {
+                                t.innerHTML = `<span>${base}</span><span style=\"margin:0 6px;color:${color};\">${pctText}</span><span>=${pe.price}</span>`;
+                            }
+                            t.style.display = 'block';
+                            const rect = panel.getBoundingClientRect();
+                            t.style.left = Math.min(panel.clientWidth - 10, (ev.pageX - rect.left) + 12) + 'px';
+                            t.style.top = Math.max(6, (ev.pageY - rect.top) - 24) + 'px';
+                        });
+                        priceEl.addEventListener('mousemove', (ev) => {
+                            try { ev.stopPropagation(); } catch (e) {}
+                            const t = panel.querySelector('.price-tooltip');
+                            if (!t) return;
+                            const rect = panel.getBoundingClientRect();
+                            t.style.left = Math.min(panel.clientWidth - 10, (ev.pageX - rect.left) + 12) + 'px';
+                            t.style.top = Math.max(6, (ev.pageY - rect.top) - 24) + 'px';
+                        });
+                        priceEl.addEventListener('mouseleave', (ev) => {
+                            try { ev.stopPropagation(); } catch (e) {}
+                            const t = panel.querySelector('.price-tooltip');
+                            if (t) t.style.display = 'none';
+                        });
+                        // Append the price element plus Sell button to the inventory section row
+                        const row = document.createElement('div');
+                        row.className = 'info-row';
+                        row.innerHTML = `<span>${pe.name}</span>`;
+                        row.appendChild(priceEl);
+
+                        const sellBtn = document.createElement('button');
+                        sellBtn.type = 'button';
+                        sellBtn.textContent = `Sell ${pe.name}`;
+                        sellBtn.className = 'sell-btn';
+                        // Prevent mousedown from bubbling to avoid extension/content-script side effects
+                        sellBtn.addEventListener('mousedown', (ev) => { try { ev.preventDefault(); ev.stopPropagation(); ev.stopImmediatePropagation(); } catch(e) {} });
+                        sellBtn.addEventListener('click', (ev) => {
+                            try { ev.preventDefault(); ev.stopPropagation(); ev.stopImmediatePropagation(); } catch(e) {}
+                            const units = pe.units || 0;
+                            const total = units * pe.price;
+                            if (units > 0) {
+                                if (ship.cargo && ship.cargo[pe.name] !== undefined) {
+                                    // Remove the cargo key entirely so inventory reflects the removal
+                                    try { delete ship.cargo[pe.name]; } catch (e) { ship.cargo[pe.name] = 0; }
+                                } else if (ship.civilization && ship.civilization.resources) {
+                                    ship.civilization.resources = 0;
+                                }
+                                ship.credits = (ship.credits || 0) + total;
+                                G.showMessage('Sold ' + units + ' ' + pe.name + ' for ' + total + ' credits');
+                                panel.remove();
+                                window.createPlanetaryTradePanel(planet, ship);
+                            }
+                        });
+                        row.appendChild(sellBtn);
+                        invSection.appendChild(row);
+                    } catch (e) { /* ignore inventory tooltip/sell UI errors */ }
+
                 });
             }
         } catch (e) { console.error('planetary-trade: failed to attach sell buttons', e); }
