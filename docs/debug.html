@@ -2483,6 +2483,20 @@ class PlayerShip extends Ship {
 
     explode(projectile) {
         super.explode(projectile);
+        // Decrement player lives and check for game over. If lives are exhausted, trigger game over instead of respawn.
+        try {
+            if (typeof G !== 'undefined') {
+                if (typeof G.lives !== 'number') G.lives = 3;
+                G.lives = Math.max(0, G.lives - 1);
+                try { console.debug && console.debug('Player exploded - lives remaining', G.lives); } catch (e) {}
+                if (G.lives <= 0) {
+                    try { if (typeof G.gameOver === 'function') G.gameOver(); } catch (e) {}
+                    // Do not continue with respawn flow
+                    if (this.thrustSound) { this.thrustSound.pause(); }
+                    return;
+                }
+            }
+        } catch (e) { /* ignore lives handling errors */ }
         // Respawn flow: preserve upgrades/baseStats but reset credits and cargo.
         setTimeout(() => {
             try {
@@ -3617,6 +3631,41 @@ class Factory extends PlanetaryStation {
                     let j = Math.floor(Math.random() * (i + 1));
                     let t = idx[i]; idx[i] = idx[j]; idx[j] = t;
                 }
+
+                    // Replace a specific market slot on a planet with a new random cargo offering
+                    function replaceMarketItem(planet, index) {
+                        try {
+                            if (!planet) return;
+                            if (!planet.market || !Array.isArray(planet.market)) planet.market = samplePlanetCargo(planet || {});
+                            let old = planet.market[index];
+
+                            // Build candidate list excluding the old cargo name (if present)
+                            let candidates = CARGO_DATA && Array.isArray(CARGO_DATA) ? CARGO_DATA.slice() : null;
+                            if (!candidates) {
+                                // Fallback: resample the whole market
+                                planet.market[index] = samplePlanetCargo(planet || {})[0] || { name: 'Unknown', units: 100, price: 1 };
+                                if (typeof U !== 'undefined' && U.saveState) try { U.saveState(); } catch (e) {}
+                                return;
+                            }
+
+                            if (old && old.name) {
+                                candidates = candidates.filter(c => c && c.cargo !== old.name && String(c.id) !== String(old.name));
+                            }
+
+                            if (!candidates.length) candidates = CARGO_DATA.slice();
+
+                            // Pick a random candidate
+                            let pick = candidates[Math.floor(Math.random() * candidates.length)];
+                            let units = 100 + Math.floor(Math.random() * 901); // 100-1000
+                            let price = getPlanetPrice(planet, pick.cargo);
+                            planet.market[index] = { name: pick.cargo, units, price };
+
+                            // Persist planet markets if Universe save is available
+                            if (typeof U !== 'undefined' && U.saveState) {
+                                try { U.saveState(); } catch (e) { /* ignore */ }
+                            }
+                        } catch (e) { console.error('replaceMarketItem error', e); }
+                    }
                 let take = Math.min(3, idx.length);
                 for (let k = 0; k < take; k++) {
                     let item = CARGO_DATA[idx[k]];
@@ -4029,7 +4078,16 @@ class Factory extends PlanetaryStation {
 
                             G.showMessage('Purchased ' + qty + ' ' + marketItem.name + ' for ' + cost + ' credits');
 
-                            // Refresh the panel
+                            // If this market slot has been depleted, replace it with a new offering
+                            try {
+                                if (marketItem.units <= 0) {
+                                    if (typeof replaceMarketItem === 'function') {
+                                        replaceMarketItem(planet, idx);
+                                    }
+                                }
+                            } catch (e) { /* ignore */ }
+
+                            // Refresh the panel so the UI reflects changed market and ship state
                             panel.remove();
                             window.createPlanetaryTradePanel(planet, ship);
                         });
@@ -5730,6 +5788,8 @@ class Game {
 
         G.healthGaugeColor = '#fff';
         G.lives = 3;
+        // Player lives (displayed in HUD)
+        G.lives = 3;
     }
 
     proceedToMissionStep(missionStep) {
@@ -5838,8 +5898,10 @@ class Game {
 
             fs('rgba(0,0,0,0.5)');
             R.strokeStyle = '#fff';
-            fr(50, 30, 270, 125);
-            strokeRect(50.5, 30.5, 270, 125);
+            // Widen the legend box so shield/hull numeric readouts and extra labels fit inside
+            // Reduced height to remove excessive bottom gap
+            fr(50, 30, 420, 150);
+            strokeRect(50.5, 30.5, 420, 150);
 
             R.font = '10pt ' + monoFont;
             R.textAlign = 'center';
@@ -5875,24 +5937,43 @@ class Game {
                 fr(100, 45, 200 * limit(0, U.playerShip.shield, 1), 10);
             });
 
-            // HUD debug: show absolute Shield and Hull current / max values as numbers
+            // Compact HUD numeric labels
             try {
                 R.font = '10pt ' + monoFont;
                 R.textAlign = 'left';
-                fs('#fff');
 
-                // Shield: current (U.playerShip.shield) is 0..health (health normalized 0..1), but we want absolute points
-                // Use the ship's current max shield/hull (which get updated by Mod Bay) for display
-                let shieldBase = (typeof U.playerShip.maxShieldPoints === 'number') ? U.playerShip.maxShieldPoints : ((U.playerShip.baseStats && U.playerShip.baseStats.maxShieldPoints) ? U.playerShip.baseStats.maxShieldPoints : 100);
-                let shieldCurrentPoints = Math.round((U.playerShip.shield || 0) * (shieldBase));
-                let shieldText = 'Shield: ' + shieldCurrentPoints + ' / ' + (shieldBase);
-                fillText(shieldText, 310, 60);
+                // Shield and Hull: show as "<shields> : <hull>" with shields blue and hull white
+                try {
+                    // absolute shield points
+                    let shieldBase = (typeof U.playerShip.maxShieldPoints === 'number') ? U.playerShip.maxShieldPoints : ((U.playerShip.baseStats && U.playerShip.baseStats.maxShieldPoints) ? U.playerShip.baseStats.maxShieldPoints : 100);
+                    let shieldCurrentPoints = Math.round((U.playerShip.shield || 0) * (shieldBase));
+                    // absolute hull points
+                    let hullBase = (typeof U.playerShip.maxHullPoints === 'number') ? U.playerShip.maxHullPoints : ((U.playerShip.baseStats && U.playerShip.baseStats.maxHullPoints) ? U.playerShip.baseStats.maxHullPoints : 100);
+                    let hullCurrentPoints = Math.round((U.playerShip.health || 0) * hullBase);
 
-                // Hull: U.playerShip.health is 0..1, base hull points from baseStats or maxHullPoints
-                let hullBase = (typeof U.playerShip.maxHullPoints === 'number') ? U.playerShip.maxHullPoints : ((U.playerShip.baseStats && U.playerShip.baseStats.maxHullPoints) ? U.playerShip.baseStats.maxHullPoints : 100);
-                let hullCurrentPoints = Math.round((U.playerShip.health || 0) * hullBase);
-                let hullText = 'Hull: ' + hullCurrentPoints + ' / ' + (hullBase);
-                fillText(hullText, 310, 90);
+                    // Draw shields in blue
+                    fs('cyan');
+                    fillText(String(shieldCurrentPoints), 360, 60);
+                    // Colon separator (small, white)
+                    fs('#fff');
+                    fillText(':', 395, 60);
+                    // Hull in white
+                    fs('#fff');
+                    fillText(String(hullCurrentPoints), 405, 60);
+                } catch (e) { /* ignore shield/hull label errors */ }
+
+                // Materials bar: show highest mod upgrade level the player has
+                try {
+                    let highest = 0;
+                    if (U.playerShip && U.playerShip.upgrades) {
+                        Object.keys(U.playerShip.upgrades).forEach(k => {
+                            let v = parseInt(U.playerShip.upgrades[k], 10) || 0;
+                            if (v > highest) highest = v;
+                        });
+                    }
+                    fs('#fff');
+                    fillText('Mod Lv: ' + String(highest), 360, 95);
+                } catch (e) { /* ignore mod label errors */ }
             } catch (e) { /* non-fatal HUD overlay error */ }
 
             G.renderGauge(100, 80, U.playerShip.civilization.resources / 200, '#fff', () => {
@@ -5903,11 +5984,60 @@ class Game {
                 renderResourcesIcon();
             });
 
-            G.renderGauge(100, 110, U.playerShip.heat, U.playerShip.coolingDown ? '#f00' : '#fff', () => {
+            // Cargo usage bar
+            try {
+                let cargoUsed = 0;
+                try {
+                    let cargo = U.playerShip.cargo || {};
+                    Object.keys(cargo).forEach(k => {
+                        let d = (typeof CARGO_DATA !== 'undefined' && Array.isArray(CARGO_DATA)) ? CARGO_DATA.find(dd => dd.cargo === k) : null;
+                        let per = d && d.storage_units ? d.storage_units : 1;
+                        cargoUsed += (cargo[k] || 0) * per;
+                    });
+                } catch (e) { cargoUsed = 0; }
+
+                let cargoCap = (typeof U.playerShip.cargoCapacity === 'number') ? U.playerShip.cargoCapacity : (U.playerShip.baseStats && U.playerShip.baseStats.cargoCapacity) || 200;
+
+                G.renderGauge(100, 110, Math.min(1, cargoUsed / Math.max(1, cargoCap)), '#9cf', () => {
+                    // small box icon for cargo
+                    beginPath();
+                    fr(-8, -6, 12, 12);
+                });
+                // Show credits next to cargo bar
+                try {
+                    R.font = '10pt ' + monoFont;
+                    R.textAlign = 'left';
+                    fs('#fff');
+                    let credits = (U.playerShip && typeof U.playerShip.credits === 'number') ? U.playerShip.credits : ((U.playerShip && U.playerShip.credits) ? U.playerShip.credits : 0);
+                    fillText(String(credits) + ' CR', 360, 115);
+                } catch (e) { /* ignore credits label errors */ }
+            } catch (e) { /* ignore cargo HUD errors */ }
+
+            // Heat bar (moved down)
+            G.renderGauge(100, 140, U.playerShip.heat, U.playerShip.coolingDown ? '#f00' : '#fff', () => {
                 fr(-5, -5, 3, 10);
                 fr(-1, -5, 3, 10);
                 fr(3, -5, 3, 10);
             });
+            // Show lives next to heat bar
+            try {
+                R.font = '10pt ' + monoFont;
+                R.textAlign = 'left';
+                fs('#fff');
+                let lives = (typeof G.lives === 'number') ? G.lives : 0;
+                fillText(String(lives) + ' lives', 360, 145);
+            } catch (e) { /* ignore lives label errors */ }
+
+            // Draw a vertical divider to show hull/shield are separate from the resource bars
+            try {
+                R.strokeStyle = 'rgba(255,255,255,0.15)';
+                R.lineWidth = 1;
+                beginPath();
+                let dividerX = 50 + 320; // inside the widened box (adjusted for wider panel)
+                moveTo(dividerX, 35);
+                lineTo(dividerX, 35 + 150);
+                stroke();
+            } catch (e) { /* ignore divider errors */ }
 
             // Rendering targets
             let targets = [];
@@ -6453,6 +6583,8 @@ class Game {
                 try { console.debug('setupNewGame: cleared persistent save'); } catch (e) {}
             }
         } catch (e) { /* ignore */ }
+        // Reset lives for a fresh new game
+        try { G.lives = 3; } catch (e) {}
     }
 
     currentPromptText() {
