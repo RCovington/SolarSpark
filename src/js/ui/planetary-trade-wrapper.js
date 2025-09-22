@@ -25,6 +25,68 @@
         } catch (e) { return 1; }
     }
 
+    // Replace a specific market slot on a planet with a new random cargo offering
+    function replaceMarketItem(planet, index) {
+        try {
+            if (!planet) return;
+            if (!planet.market || !Array.isArray(planet.market)) planet.market = samplePlanetCargo(planet || {});
+            const old = planet.market[index];
+
+            // Build candidate list from CARGO_DATA
+            let candidates = CARGO_DATA && Array.isArray(CARGO_DATA) ? CARGO_DATA.slice() : null;
+            if (!candidates) {
+                // Fallback: resample the whole market
+                planet.market[index] = samplePlanetCargo(planet || {})[0] || { name: 'Unknown', units: 100, price: 1 };
+                if (typeof U !== 'undefined' && U.saveState) try { U.saveState(); } catch (e) {}
+                return;
+            }
+
+            // Exclude the old cargo by name (case-insensitive) and id
+            try {
+                if (old && old.name) {
+                    const oldName = String(old.name).toLowerCase();
+                    candidates = candidates.filter(c => {
+                        if (!c) return false;
+                        try {
+                            if (String(c.id) === String(old.name)) return false;
+                        } catch (e) {}
+                        try {
+                            return String(c.cargo).toLowerCase() !== oldName;
+                        } catch (e) { return true; }
+                    });
+                }
+            } catch (e) { /* ignore filtering errors */ }
+
+            if (!candidates.length) candidates = CARGO_DATA.slice();
+
+            // Try several times to pick a different cargo (defensive against duplicates)
+            let pick = null;
+            for (let attempt = 0; attempt < 6; attempt++) {
+                const p = candidates[Math.floor(Math.random() * candidates.length)];
+                if (!p) continue;
+                if (old && old.name && String(p.cargo).toLowerCase() === String(old.name).toLowerCase()) continue;
+                pick = p; break;
+            }
+            if (!pick) pick = candidates[Math.floor(Math.random() * candidates.length)];
+
+            const units = 100 + Math.floor(Math.random() * 901); // 100-1000
+            const price = getPlanetPrice(planet, pick.cargo);
+            planet.market[index] = { name: pick.cargo, units, price };
+
+            // Debug: log replacement
+            try {
+                const oldName = old && old.name ? old.name : '(none)';
+                const planetId = planet && (planet.name || planet.id) ? (planet.name || planet.id) : 'unknown';
+                console.log('[market] replaceMarketItem:', planetId, 'index', index, 'replaced', oldName, '->', pick.cargo, 'units', units, 'price', price);
+            } catch (e) {}
+
+            // Persist planet markets if Universe save is available
+            if (typeof U !== 'undefined' && U.saveState) {
+                try { U.saveState(); } catch (e) { /* ignore */ }
+            }
+        } catch (e) { console.error('replaceMarketItem error', e); }
+    }
+
     // Helper to create sample planet cargo offerings
     function samplePlanetCargo(planet) {
         // If CARGO_DATA is available, pick 3 unique random entries and generate units/price
@@ -38,45 +100,14 @@
                     const t = idx[i]; idx[i] = idx[j]; idx[j] = t;
                 }
 
-                    // Replace a specific market slot on a planet with a new random cargo offering
-                    function replaceMarketItem(planet, index) {
-                        try {
-                            if (!planet) return;
-                            if (!planet.market || !Array.isArray(planet.market)) planet.market = samplePlanetCargo(planet || {});
-                            const old = planet.market[index];
-
-                            // Build candidate list excluding the old cargo name (if present)
-                            let candidates = CARGO_DATA && Array.isArray(CARGO_DATA) ? CARGO_DATA.slice() : null;
-                            if (!candidates) {
-                                // Fallback: resample the whole market
-                                planet.market[index] = samplePlanetCargo(planet || {})[0] || { name: 'Unknown', units: 100, price: 1 };
-                                if (typeof U !== 'undefined' && U.saveState) try { U.saveState(); } catch (e) {}
-                                return;
-                            }
-
-                            if (old && old.name) {
-                                candidates = candidates.filter(c => c && c.cargo !== old.name && String(c.id) !== String(old.name));
-                            }
-
-                            if (!candidates.length) candidates = CARGO_DATA.slice();
-
-                            // Pick a random candidate
-                            const pick = candidates[Math.floor(Math.random() * candidates.length)];
-                            const units = 100 + Math.floor(Math.random() * 901); // 100-1000
-                            const price = getPlanetPrice(planet, pick.cargo);
-                            planet.market[index] = { name: pick.cargo, units, price };
-
-                            // Persist planet markets if Universe save is available
-                            if (typeof U !== 'undefined' && U.saveState) {
-                                try { U.saveState(); } catch (e) { /* ignore */ }
-                            }
-                        } catch (e) { console.error('replaceMarketItem error', e); }
-                    }
+                    // (replaceMarketItem was moved to module scope)
                 const take = Math.min(3, idx.length);
                 for (let k = 0; k < take; k++) {
                     const item = CARGO_DATA[idx[k]];
                     const units = 100 + Math.floor(Math.random() * 901); // 100-1000
-                    const price = getPlanetPrice(planet, item.cargo);
+                    let price = getPlanetPrice(planet, item.cargo);
+                    // If planet is colonized, offer half price for newly sampled items
+                    try { if (planet && planet.civilization && planet.civilization.colonized) price = Math.max(1, Math.floor(price / 2)); } catch (e) {}
                     picks.push({ name: item.cargo, units, price });
                 }
                 return picks;
@@ -293,6 +324,151 @@
                 firstSection.insertBefore(creditsIndicator, firstSection.firstChild);
                 firstSection.insertBefore(capacityIndicator, creditsIndicator.nextSibling);
                 firstSection.insertBefore(reputationIndicator, capacityIndicator.nextSibling);
+                // If planet is eligible for colonization, add a Colonize button area
+                try {
+                    const civ = planet && planet.civilization;
+                    const noStations = !(planet.stations && planet.stations.length);
+                    const isEnemy = civ && civ.relationshipType && civ.relationshipType() === RELATIONSHIP_ENEMY;
+                    // Colonization is only possible when the planet has no defenses (no stations)
+                    if (civ && noStations && isEnemy) {
+                        const colonizeWrapper = document.createElement('div');
+                        colonizeWrapper.className = 'colonize-wrapper';
+                        const colonizeBtn = document.createElement('button');
+                        colonizeBtn.type = 'button';
+                        colonizeBtn.textContent = 'Colonize Planet';
+                        colonizeBtn.title = 'Required: 100 units of any 1 of: Terraform Clay, Biofoam Packs, CryoPods, Quantum Grain';
+
+                        // Checklist UI
+                        const checklist = document.createElement('div');
+                        checklist.className = 'colonize-checklist';
+                        const reqList = ['Terraform Clay', 'Biofoam Packs', 'CryoPods', 'Quantum Grain'];
+                        reqList.forEach(name => {
+                            const item = document.createElement('div');
+                            item.className = 'colonize-check-item';
+                            item.setAttribute('data-cargo-name', name);
+                            item.textContent = `✗ ${name} (100)`;
+                            checklist.appendChild(item);
+                        });
+
+                        function updateColonizeChecklist() {
+                            try {
+                                const shipCargo = ship && ship.cargo ? ship.cargo : {};
+                                const nodes = checklist.querySelectorAll('.colonize-check-item');
+                                nodes.forEach(n => {
+                                    try {
+                                        const name = n.getAttribute('data-cargo-name');
+                                        const have = (shipCargo[name] || 0) >= 100;
+                                        n.textContent = (have ? '✓ ' : '✗ ') + name + ' (100)';
+                                        if (have) n.style.color = '#66ff66'; else n.style.color = '#fff';
+                                    } catch (e) {}
+                                });
+                            } catch (e) {}
+                        }
+
+                        // Helper to perform colonization after name confirmed
+                        function performColonize(name) {
+                            try {
+                                // Required cargo names
+                                const required = reqList;
+                                const requiredCount = 1; // only need 1 of the 4 for now
+                                const shipCargo = ship && ship.cargo ? ship.cargo : {};
+                                const provided = required.filter(n => (shipCargo[n] || 0) >= 100);
+                                if (provided.length < requiredCount) {
+                                    setPanelMessage('Colonization requires 100 units of any 1 of: Terraform Clay, Biofoam Packs, CryoPods, Quantum Grain');
+                                    updateColonizeChecklist();
+                                    return;
+                                }
+
+                                // Consume 100 units from the first provided item
+                                provided.slice(0, requiredCount).forEach(n => {
+                                    try { ship.cargo[n] = (ship.cargo[n] || 0) - 100; if (ship.cargo[n] <= 0) delete ship.cargo[n]; } catch (e) {}
+                                });
+
+                                // Set planet name if provided and not empty
+                                try { if (name && typeof name === 'string' && name.trim()) planet.name = name.trim(); } catch (e) {}
+
+                                // Mark civilization colonized and apply reputation
+                                try { planet.civilization.colonized = true; if (typeof planet.civilization.applyReputationToRelationship === 'function') planet.civilization.applyReputationToRelationship(); } catch (e) {}
+
+                                // Halve all stored planet prices so player gets half price forever
+                                try {
+                                    if (!planet.prices) planet.prices = {};
+                                    Object.keys(planet.prices).forEach(k => { try { planet.prices[k] = Math.max(1, Math.floor(planet.prices[k] / 2)); } catch (e) {} });
+                                    // Also halve current market listings
+                                    if (planet.market && Array.isArray(planet.market)) planet.market.forEach(m => { try { m.price = Math.max(1, Math.floor(m.price / 2)); } catch (e) {} });
+                                } catch (e) {}
+
+                                // Persist world state if possible
+                                try { if (typeof U !== 'undefined' && U.saveState) U.saveState(); } catch (e) {}
+
+                                setPanelMessage('Planet colonized! It is now friendly and offers half-price to you.');
+                                // Refresh the panel to reflect price and relationship changes
+                                panel.remove();
+                                window.createPlanetaryTradePanel(planet, ship);
+                            } catch (e) { /* ignore colonize errors */ }
+                        }
+
+                        colonizeBtn.addEventListener('click', (ev) => {
+                            try { ev.preventDefault(); ev.stopPropagation(); } catch (e) {}
+                            // Show an inline input area for naming (so typed text is visible and buttons are clickable)
+                            try {
+                                // If input already exists, focus it
+                                if (colonizeWrapper.querySelector('.colonize-name-input')) {
+                                    colonizeWrapper.querySelector('.colonize-name-input').focus();
+                                    return;
+                                }
+
+                                const nameRow = document.createElement('div');
+                                nameRow.className = 'colonize-name-row';
+                                const nameInput = document.createElement('input');
+                                nameInput.type = 'text';
+                                nameInput.className = 'colonize-name-input';
+                                nameInput.value = planet.name || 'New Colony';
+                                nameInput.style.marginRight = '8px';
+
+                                const confirmName = document.createElement('button');
+                                confirmName.type = 'button';
+                                confirmName.textContent = 'Confirm';
+                                confirmName.className = 'colonize-confirm-btn';
+
+                                const cancelName = document.createElement('button');
+                                cancelName.type = 'button';
+                                cancelName.textContent = 'Cancel';
+                                cancelName.className = 'colonize-cancel-btn';
+
+                                nameRow.appendChild(nameInput);
+                                nameRow.appendChild(confirmName);
+                                nameRow.appendChild(cancelName);
+                                colonizeWrapper.appendChild(nameRow);
+
+                                // Focus input for typing
+                                setTimeout(() => { try { nameInput.focus(); nameInput.select(); } catch (e) {} }, 20);
+
+                                confirmName.addEventListener('click', (evt) => {
+                                    try { evt.preventDefault(); evt.stopPropagation(); } catch (e) {}
+                                    const name = nameInput.value || planet.name || 'New Colony';
+                                    performColonize(name);
+                                });
+
+                                cancelName.addEventListener('click', (evt) => {
+                                    try { evt.preventDefault(); evt.stopPropagation(); } catch (e) {}
+                                    try { nameRow.remove(); } catch (e) {}
+                                    setPanelMessage('Colonization cancelled');
+                                });
+
+                                // Update checklist when typing/focusing
+                                nameInput.addEventListener('input', updateColonizeChecklist);
+                                updateColonizeChecklist();
+                            } catch (e) { /* ignore UI fail */ }
+                        });
+
+                        colonizeWrapper.appendChild(colonizeBtn);
+                        colonizeWrapper.appendChild(checklist);
+                        firstSection.insertBefore(colonizeWrapper, reputationIndicator.nextSibling);
+                        // initialize checklist display
+                        updateColonizeChecklist();
+                    }
+                } catch (e) { /* ignore colonize UI errors */ }
             }
 
             // Attach Buy controls next to each market row
@@ -487,15 +663,90 @@
                             // If this market slot has been depleted, replace it with a new offering
                             try {
                                 if (marketItem.units <= 0) {
-                                    if (typeof replaceMarketItem === 'function') {
-                                        replaceMarketItem(planet, idx);
-                                    }
+                                    replaceMarketItem(planet, idx);
                                 }
                             } catch (e) { /* ignore */ }
 
-                            // Refresh the panel so the UI reflects changed market and ship state
-                            panel.remove();
-                            window.createPlanetaryTradePanel(planet, ship);
+                            // Update UI in place instead of full panel refresh
+                            try {
+                                // Update credits indicator
+                                const creditsIndicator = panel.querySelector('.credits-indicator');
+                                if (creditsIndicator) creditsIndicator.textContent = `Ship credits: ${ship && ship.credits ? ship.credits : 0} cr`;
+
+                                // Update capacity indicator
+                                const capacityIndicator = panel.querySelector('.capacity-indicator');
+                                const remainingSpaceValNew = getShipRemainingSpace(ship);
+                                const totalCapNew = (ship && typeof ship.cargoCapacity === 'number' && ship.cargoCapacity > 0) ? ship.cargoCapacity : 200;
+                                if (capacityIndicator) capacityIndicator.textContent = `Ship cargo remaining: ${remainingSpaceValNew} / ${totalCapNew} units`;
+
+                                // Update the market row units and price for this index
+                                const row = panel.querySelector(`.info-row[data-market-index="${idx}"]`);
+                                if (row) {
+                                    const marketNow = planet.market && Array.isArray(planet.market) ? planet.market[idx] : marketItem;
+                                    // Update the display text (first span) and price element (price-el)
+                                    try {
+                                        const spans = row.querySelectorAll('span');
+                                        if (spans && spans[0]) spans[0].textContent = `${marketNow.name} (${marketNow.units} units)`;
+                                        const priceEl = row.querySelector('.price-el');
+                                        if (priceEl) priceEl.textContent = `${marketNow.price} cr/unit`;
+                                    } catch (e) {}
+                                }
+
+                                // Update the inventory section: either update existing row or add one
+                                const invSection = panel.querySelector('.section + .section');
+                                if (invSection) {
+                                    // Try to find existing inventory row for this cargo
+                                    let invRow = null;
+                                    const invRows = invSection.querySelectorAll('.info-row');
+                                    invRows.forEach(r => {
+                                        try {
+                                            if (r && r.firstChild && r.firstChild.textContent && r.firstChild.textContent.indexOf(marketItem.name) === 0) invRow = r;
+                                        } catch (e) {}
+                                    });
+
+                                    if (invRow) {
+                                        // Update units text
+                                        try {
+                                            invRow.firstChild.textContent = `${marketItem.name} (${(ship.cargo && ship.cargo[marketItem.name]) || 0} units)`;
+                                        } catch (e) {}
+                                    } else {
+                                        // Add a new inventory row for this cargo (simple append)
+                                        try {
+                                            const price = Math.max(1, Math.floor(3 + (Math.random() * 5)));
+                                            const rowEl = document.createElement('div');
+                                            rowEl.className = 'info-row';
+                                            rowEl.innerHTML = `<span>${marketItem.name} (${(ship.cargo && ship.cargo[marketItem.name]) || 0} units)</span>`;
+                                            const priceEl = document.createElement('span');
+                                            priceEl.className = 'inv-price-el';
+                                            priceEl.textContent = `${price} cr/unit`;
+                                            rowEl.appendChild(priceEl);
+                                            const sellBtn = document.createElement('button');
+                                            sellBtn.type = 'button';
+                                            sellBtn.textContent = `Sell ${marketItem.name}`;
+                                            sellBtn.className = 'sell-btn';
+                                            sellBtn.addEventListener('click', (ev) => {
+                                                try { ev.preventDefault(); ev.stopPropagation(); ev.stopImmediatePropagation(); } catch(e) {}
+                                                const units = (ship.cargo && ship.cargo[marketItem.name]) || 0;
+                                                const total = units * price;
+                                                if (units > 0) {
+                                                    try { delete ship.cargo[marketItem.name]; } catch (e) { ship.cargo[marketItem.name] = 0; }
+                                                    ship.credits = (ship.credits || 0) + total;
+                                                    G.showMessage('Sold ' + units + ' ' + marketItem.name + ' for ' + total + ' credits');
+                                                    // Remove row
+                                                    try { rowEl.remove(); } catch (e) {}
+                                                    // Update credits
+                                                    const ci = panel.querySelector('.credits-indicator'); if (ci) ci.textContent = `Ship credits: ${ship && ship.credits ? ship.credits : 0} cr`;
+                                                }
+                                            });
+                                            rowEl.appendChild(sellBtn);
+                                            invSection.appendChild(rowEl);
+                                        } catch (e) {}
+                                    }
+                                }
+                            } catch (e) {
+                                // If in-place update fails for any reason, fall back to full refresh
+                                try { panel.remove(); window.createPlanetaryTradePanel(planet, ship); } catch (e2) {}
+                            }
                         });
                     });
 

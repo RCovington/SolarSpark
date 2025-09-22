@@ -266,6 +266,7 @@ class Universe {
             const payload = this.bodies.filter(b => b instanceof Planet).map(p => ({
                 name: p.name,
                 reputation: p.civilization && typeof p.civilization.reputation === 'number' ? p.civilization.reputation : undefined,
+                colonized: p.civilization && !!p.civilization.colonized,
                 market: p.market || null,
                 prices: p.prices || null
             }));
@@ -299,6 +300,15 @@ class Universe {
                     if (entry.reputation !== undefined && p.civilization) {
                         p.civilization.reputation = entry.reputation;
                         if (typeof p.civilization.applyReputationToRelationship === 'function') p.civilization.applyReputationToRelationship();
+                    }
+                    if (entry.colonized && p.civilization) {
+                        try { p.civilization.colonized = true; if (typeof p.civilization.applyReputationToRelationship === 'function') p.civilization.applyReputationToRelationship(); } catch (e) {}
+                        // If prices were not persisted for some reason, attempt to halve existing prices so player keeps half-price benefit
+                        try {
+                            if (!p.prices && p.market && Array.isArray(p.market)) {
+                                p.market.forEach(m => { try { m.price = Math.max(1, Math.floor(m.price / 2)); } catch (e) {} });
+                            }
+                        } catch (e) {}
                     }
                     if (entry.market) p.market = entry.market;
                     if (entry.prices) p.prices = entry.prices;

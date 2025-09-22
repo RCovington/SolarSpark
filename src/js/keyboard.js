@@ -23,7 +23,16 @@ onkeyup = e => {
 
             // Next, check planets (within planet.reachRadius)
             if (U.bodies) {
-                const nearbyPlanet = U.bodies.find(body => body instanceof Planet && dist(body, U.playerShip) < body.reachRadius && body.civilization && body.civilization.relationshipType && body.civilization.relationshipType() === RELATIONSHIP_ALLY);
+                // Prefer orbital station docking handled above. For planets: allow docking to friendly or defenseless planets
+                const nearbyPlanet = U.bodies.find(body => {
+                    if (!(body instanceof Planet)) return false;
+                    if (dist(body, U.playerShip) >= body.reachRadius) return false;
+                    try {
+                        const defenseless = !(body.stations && body.stations.length);
+                        const isAlly = body.civilization && body.civilization.relationshipType && body.civilization.relationshipType() === RELATIONSHIP_ALLY;
+                        return isAlly || defenseless;
+                    } catch (e) { return false; }
+                });
                 if (nearbyPlanet) {
                     if (window.createPlanetaryTradePanel) {
                         window.createPlanetaryTradePanel(nearbyPlanet, U.playerShip);

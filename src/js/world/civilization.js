@@ -4,6 +4,8 @@ class Civilization {
         this.resources = 0;
         this.center = center;
         this.relationship = relationship;
+        // If colonized, this civilization is permanently allied to the player
+        this.colonized = false;
         // Numeric reputation score for trade UI and mission effects
         // Allies start at +100, enemies start at -100
         try {
@@ -13,6 +15,8 @@ class Civilization {
     }
 
     relationshipType() {
+        // Colonized civilizations are always allies
+        if (this.colonized) return RELATIONSHIP_ALLY;
         return this.relationship < 0.5 ? RELATIONSHIP_ENEMY : RELATIONSHIP_ALLY;
     }
 
@@ -21,6 +25,10 @@ class Civilization {
     }
 
     updateRelationship(difference) {
+        // If colonized, ignore negative changes and remain allied forever
+        if (this.colonized && difference < 0) {
+            return;
+        }
         const relationshipTypeBefore = this.relationshipType();
         this.relationship = limit(0, this.relationship + difference, 1);
 

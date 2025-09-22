@@ -109,16 +109,19 @@ class Planet extends Body {
                 this.showingPlanetPrompt = true;
                 const title = (this.name || 'Unknown');
 
-                if (friendly) {
+                // Consider defenseless planets (no stations) dockable regardless of relationship
+                const defenseless = !(this.stations && this.stations.length);
+
+                if (friendly || defenseless) {
                     if (this.hasOffer) {
-                        // Friendly planet with an incoming communication: show both Dock and Accept
+                        // Friendly or defenseless planet with an incoming communication: show both Dock and Accept
                         G.showPrompt(`${title}\nPress [D] to dock\nPress [A] to accept incoming communication`);
                     } else {
-                        // Friendly planet with no offer: show trade hint only
+                        // Friendly or defenseless planet with no offer: show trade hint only
                         G.showPrompt(`${title} - Planetary Trade\nPress [D] to trade`);
                     }
                 } else {
-                    // Non-friendly planets: only show incoming communication hint if there's an offer
+                    // Non-friendly planets with defenses: only show incoming communication hint if there's an offer
                     if (this.hasOffer) {
                         G.showPrompt(`${title}\nPress [A] to receive incoming communication`);
                     }
