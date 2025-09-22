@@ -42,6 +42,8 @@ class Game {
         G.healthIconScale = 1;
 
         G.healthGaugeColor = '#fff';
+        // Player lives (displayed in HUD)
+        G.lives = 3;
     }
 
     proceedToMissionStep(missionStep) {
@@ -149,8 +151,10 @@ class Game {
 
             fs('rgba(0,0,0,0.5)');
             R.strokeStyle = '#fff';
-            fr(50, 30, 270, 125);
-            strokeRect(50.5, 30.5, 270, 125);
+            // Widen the legend box so shield/hull numeric readouts and extra labels fit inside
+            // Reduced height to remove excessive bottom gap
+            fr(50, 30, 420, 150);
+            strokeRect(50.5, 30.5, 420, 150);
 
             R.font = '10pt ' + monoFont;
             R.textAlign = nomangle('center');
@@ -186,24 +190,43 @@ class Game {
                 fr(100, 45, 200 * limit(0, U.playerShip.shield, 1), 10);
             });
 
-            // HUD debug: show absolute Shield and Hull current / max values as numbers
+            // Compact HUD numeric labels
             try {
                 R.font = '10pt ' + monoFont;
                 R.textAlign = nomangle('left');
-                fs('#fff');
 
-                // Shield: current (U.playerShip.shield) is 0..health (health normalized 0..1), but we want absolute points
-                // Use the ship's current max shield/hull (which get updated by Mod Bay) for display
-                const shieldBase = (typeof U.playerShip.maxShieldPoints === 'number') ? U.playerShip.maxShieldPoints : ((U.playerShip.baseStats && U.playerShip.baseStats.maxShieldPoints) ? U.playerShip.baseStats.maxShieldPoints : 100);
-                const shieldCurrentPoints = Math.round((U.playerShip.shield || 0) * (shieldBase));
-                const shieldText = 'Shield: ' + shieldCurrentPoints + ' / ' + (shieldBase);
-                fillText(shieldText, 310, 60);
+                // Shield and Hull: show as "<shields> : <hull>" with shields blue and hull white
+                try {
+                    // absolute shield points
+                    const shieldBase = (typeof U.playerShip.maxShieldPoints === 'number') ? U.playerShip.maxShieldPoints : ((U.playerShip.baseStats && U.playerShip.baseStats.maxShieldPoints) ? U.playerShip.baseStats.maxShieldPoints : 100);
+                    const shieldCurrentPoints = Math.round((U.playerShip.shield || 0) * (shieldBase));
+                    // absolute hull points
+                    const hullBase = (typeof U.playerShip.maxHullPoints === 'number') ? U.playerShip.maxHullPoints : ((U.playerShip.baseStats && U.playerShip.baseStats.maxHullPoints) ? U.playerShip.baseStats.maxHullPoints : 100);
+                    const hullCurrentPoints = Math.round((U.playerShip.health || 0) * hullBase);
 
-                // Hull: U.playerShip.health is 0..1, base hull points from baseStats or maxHullPoints
-                const hullBase = (typeof U.playerShip.maxHullPoints === 'number') ? U.playerShip.maxHullPoints : ((U.playerShip.baseStats && U.playerShip.baseStats.maxHullPoints) ? U.playerShip.baseStats.maxHullPoints : 100);
-                const hullCurrentPoints = Math.round((U.playerShip.health || 0) * hullBase);
-                const hullText = 'Hull: ' + hullCurrentPoints + ' / ' + (hullBase);
-                fillText(hullText, 310, 90);
+                    // Draw shields in blue
+                    fs('cyan');
+                    fillText(String(shieldCurrentPoints), 360, 60);
+                    // Colon separator (small, white)
+                    fs('#fff');
+                    fillText(':', 395, 60);
+                    // Hull in white
+                    fs('#fff');
+                    fillText(String(hullCurrentPoints), 405, 60);
+                } catch (e) { /* ignore shield/hull label errors */ }
+
+                // Materials bar: show highest mod upgrade level the player has
+                try {
+                    let highest = 0;
+                    if (U.playerShip && U.playerShip.upgrades) {
+                        Object.keys(U.playerShip.upgrades).forEach(k => {
+                            const v = parseInt(U.playerShip.upgrades[k], 10) || 0;
+                            if (v > highest) highest = v;
+                        });
+                    }
+                    fs('#fff');
+                    fillText('Mod Lv: ' + String(highest), 360, 95);
+                } catch (e) { /* ignore mod label errors */ }
             } catch (e) { /* non-fatal HUD overlay error */ }
 
             G.renderGauge(100, 80, U.playerShip.civilization.resources / PLANET_MAX_RESOURCES, '#fff', () => {
@@ -214,11 +237,60 @@ class Game {
                 renderResourcesIcon();
             });
 
-            G.renderGauge(100, 110, U.playerShip.heat, U.playerShip.coolingDown ? '#f00' : '#fff', () => {
+            // Cargo usage bar
+            try {
+                let cargoUsed = 0;
+                try {
+                    const cargo = U.playerShip.cargo || {};
+                    Object.keys(cargo).forEach(k => {
+                        const d = (typeof CARGO_DATA !== 'undefined' && Array.isArray(CARGO_DATA)) ? CARGO_DATA.find(dd => dd.cargo === k) : null;
+                        const per = d && d.storage_units ? d.storage_units : 1;
+                        cargoUsed += (cargo[k] || 0) * per;
+                    });
+                } catch (e) { cargoUsed = 0; }
+
+                const cargoCap = (typeof U.playerShip.cargoCapacity === 'number') ? U.playerShip.cargoCapacity : (U.playerShip.baseStats && U.playerShip.baseStats.cargoCapacity) || 200;
+
+                G.renderGauge(100, 110, Math.min(1, cargoUsed / Math.max(1, cargoCap)), '#9cf', () => {
+                    // small box icon for cargo
+                    beginPath();
+                    fr(-8, -6, 12, 12);
+                });
+                // Show credits next to cargo bar
+                try {
+                    R.font = '10pt ' + monoFont;
+                    R.textAlign = nomangle('left');
+                    fs('#fff');
+                    const credits = (U.playerShip && typeof U.playerShip.credits === 'number') ? U.playerShip.credits : ((U.playerShip && U.playerShip.credits) ? U.playerShip.credits : 0);
+                    fillText(String(credits) + ' CR', 360, 115);
+                } catch (e) { /* ignore credits label errors */ }
+            } catch (e) { /* ignore cargo HUD errors */ }
+
+            // Heat bar (moved down)
+            G.renderGauge(100, 140, U.playerShip.heat, U.playerShip.coolingDown ? '#f00' : '#fff', () => {
                 fr(-5, -5, 3, 10);
                 fr(-1, -5, 3, 10);
                 fr(3, -5, 3, 10);
             });
+            // Show lives next to heat bar
+            try {
+                R.font = '10pt ' + monoFont;
+                R.textAlign = nomangle('left');
+                fs('#fff');
+                const lives = (typeof G.lives === 'number') ? G.lives : 0;
+                fillText(String(lives) + ' lives', 360, 145);
+            } catch (e) { /* ignore lives label errors */ }
+
+            // Draw a vertical divider to show hull/shield are separate from the resource bars
+            try {
+                R.strokeStyle = 'rgba(255,255,255,0.15)';
+                R.lineWidth = 1;
+                beginPath();
+                const dividerX = 50 + 320; // inside the widened box (adjusted for wider panel)
+                moveTo(dividerX, 35);
+                lineTo(dividerX, 35 + 150);
+                stroke();
+            } catch (e) { /* ignore divider errors */ }
 
             // Rendering targets
             let targets = [];
@@ -720,6 +792,8 @@ class Game {
                 try { console.debug('setupNewGame: cleared persistent save'); } catch (e) {}
             }
         } catch (e) { /* ignore */ }
+        // Reset lives for a fresh new game
+        try { G.lives = 3; } catch (e) {}
     }
 
     currentPromptText() {

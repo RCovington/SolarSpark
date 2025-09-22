@@ -37,6 +37,41 @@
                     const j = Math.floor(Math.random() * (i + 1));
                     const t = idx[i]; idx[i] = idx[j]; idx[j] = t;
                 }
+
+                    // Replace a specific market slot on a planet with a new random cargo offering
+                    function replaceMarketItem(planet, index) {
+                        try {
+                            if (!planet) return;
+                            if (!planet.market || !Array.isArray(planet.market)) planet.market = samplePlanetCargo(planet || {});
+                            const old = planet.market[index];
+
+                            // Build candidate list excluding the old cargo name (if present)
+                            let candidates = CARGO_DATA && Array.isArray(CARGO_DATA) ? CARGO_DATA.slice() : null;
+                            if (!candidates) {
+                                // Fallback: resample the whole market
+                                planet.market[index] = samplePlanetCargo(planet || {})[0] || { name: 'Unknown', units: 100, price: 1 };
+                                if (typeof U !== 'undefined' && U.saveState) try { U.saveState(); } catch (e) {}
+                                return;
+                            }
+
+                            if (old && old.name) {
+                                candidates = candidates.filter(c => c && c.cargo !== old.name && String(c.id) !== String(old.name));
+                            }
+
+                            if (!candidates.length) candidates = CARGO_DATA.slice();
+
+                            // Pick a random candidate
+                            const pick = candidates[Math.floor(Math.random() * candidates.length)];
+                            const units = 100 + Math.floor(Math.random() * 901); // 100-1000
+                            const price = getPlanetPrice(planet, pick.cargo);
+                            planet.market[index] = { name: pick.cargo, units, price };
+
+                            // Persist planet markets if Universe save is available
+                            if (typeof U !== 'undefined' && U.saveState) {
+                                try { U.saveState(); } catch (e) { /* ignore */ }
+                            }
+                        } catch (e) { console.error('replaceMarketItem error', e); }
+                    }
                 const take = Math.min(3, idx.length);
                 for (let k = 0; k < take; k++) {
                     const item = CARGO_DATA[idx[k]];
@@ -449,7 +484,16 @@
 
                             G.showMessage('Purchased ' + qty + ' ' + marketItem.name + ' for ' + cost + ' credits');
 
-                            // Refresh the panel
+                            // If this market slot has been depleted, replace it with a new offering
+                            try {
+                                if (marketItem.units <= 0) {
+                                    if (typeof replaceMarketItem === 'function') {
+                                        replaceMarketItem(planet, idx);
+                                    }
+                                }
+                            } catch (e) { /* ignore */ }
+
+                            // Refresh the panel so the UI reflects changed market and ship state
                             panel.remove();
                             window.createPlanetaryTradePanel(planet, ship);
                         });
