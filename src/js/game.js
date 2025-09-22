@@ -349,6 +349,33 @@ class Game {
                 });
             });
 
+            // Draw green directional arrows for every planet the player has colonized
+            try {
+                const colonized = U.bodies.filter(b => b instanceof Planet && b.civilization && b.civilization.colonized);
+                colonized.forEach(planet => {
+                    if (dist(planet, U.playerShip) < (planet.reachRadius || 0)) return;
+
+                    const angle = angleBetween(U.playerShip, planet);
+
+                    wrap(() => {
+                        const distanceOnCircle = limit(0, (dist(planet, U.playerShip) - (planet.reachRadius || 0)) / 4000, 1) * 200 + 50;
+
+                        translate(CANVAS_WIDTH / 2 + cos(angle) * distanceOnCircle, CANVAS_HEIGHT / 2 + sin(angle) * distanceOnCircle);
+                        rotate(angle);
+
+                        // Bright green arrow slightly smaller than mission arrows
+                        R.globalAlpha = 0.95;
+                        fs('#0f0');
+                        beginPath();
+                        moveTo(0, 0);
+                        lineTo(-10, 7);
+                        lineTo(-5, 0);
+                        lineTo(-10, -7);
+                        fill();
+                    });
+                });
+            } catch (e) { /* ignore HUD arrow errors */ }
+
             // Prompt
             const promptText = G.promptText();
             if (promptText) {

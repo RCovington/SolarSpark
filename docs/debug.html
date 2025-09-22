@@ -3686,6 +3686,8 @@ class Factory extends PlanetaryStation {
 
             let units = 100 + Math.floor(Math.random() * 901); // 100-1000
             let price = getPlanetPrice(planet, pick.cargo);
+            // If planet is colonized, halve the price (minimum 1)
+            try { if (planet && planet.civilization && planet.civilization.colonized) price = Math.max(1, Math.floor(price / 2)); } catch (e) {}
             planet.market[index] = { name: pick.cargo, units, price };
 
             // Debug: log replacement
@@ -3951,7 +3953,7 @@ class Factory extends PlanetaryStation {
                         let colonizeBtn = document.createElement('button');
                         colonizeBtn.type = 'button';
                         colonizeBtn.textContent = 'Colonize Planet';
-                        colonizeBtn.title = 'Required: 100 units of any 1 of: Terraform Clay, Biofoam Packs, CryoPods, Quantum Grain';
+                        colonizeBtn.title = 'Required: 100 units of selected cargo types (see checklist)';
 
                         // Checklist UI
                         let checklist = document.createElement('div');
@@ -3969,6 +3971,11 @@ class Factory extends PlanetaryStation {
                             try {
                                 let shipCargo = ship && ship.cargo ? ship.cargo : {};
                                 let nodes = checklist.querySelectorAll('.colonize-check-item');
+                                // Determine how many cargo types are required based on already-colonized planets
+                                let alreadyColonized = 0;
+                                try { alreadyColonized = U.bodies.filter(b => b instanceof Planet && b.civilization && b.civilization.colonized).length; } catch (e) { alreadyColonized = 0; }
+                                let requiredCount = Math.min(4, (alreadyColonized || 0) + 1);
+
                                 nodes.forEach(n => {
                                     try {
                                         let name = n.getAttribute('data-cargo-name');
@@ -3977,6 +3984,17 @@ class Factory extends PlanetaryStation {
                                         if (have) n.style.color = '#66ff66'; else n.style.color = '#fff';
                                     } catch (e) {}
                                 });
+
+                                // Update a short header showing how many distinct types are required
+                                try {
+                                    let header = colonizeWrapper.querySelector('.colonize-requirement');
+                                    if (!header) {
+                                        header = document.createElement('div');
+                                        header.className = 'colonize-requirement';
+                                        colonizeWrapper.insertBefore(header, checklist);
+                                    }
+                                    header.textContent = `Requirement: ${requiredCount} of the following cargo types (100 units each)`;
+                                } catch (e) {}
                             } catch (e) {}
                         }
 
@@ -3985,22 +4003,25 @@ class Factory extends PlanetaryStation {
                             try {
                                 // Required cargo names
                                 let required = reqList;
-                                let requiredCount = 1; // only need 1 of the 4 for now
+                                // Compute required distinct cargo types based on how many planets are already colonized
+                                let alreadyColonized = 0;
+                                try { alreadyColonized = U.bodies.filter(b => b instanceof Planet && b.civilization && b.civilization.colonized).length; } catch (e) { alreadyColonized = 0; }
+                                let requiredCount = Math.min(4, (alreadyColonized || 0) + 1);
                                 let shipCargo = ship && ship.cargo ? ship.cargo : {};
                                 let provided = required.filter(n => (shipCargo[n] || 0) >= 100);
                                 if (provided.length < requiredCount) {
-                                    setPanelMessage('Colonization requires 100 units of any 1 of: Terraform Clay, Biofoam Packs, CryoPods, Quantum Grain');
+                                    setPanelMessage(`Colonization requires ${requiredCount} distinct cargo types with 100 units each from: ${required.join(', ')}`);
                                     updateColonizeChecklist();
                                     return;
                                 }
 
-                                // Consume 100 units from the first provided item
+                                // Consume 100 units from the first N provided distinct items
                                 provided.slice(0, requiredCount).forEach(n => {
                                     try { ship.cargo[n] = (ship.cargo[n] || 0) - 100; if (ship.cargo[n] <= 0) delete ship.cargo[n]; } catch (e) {}
                                 });
 
                                 // Set planet name if provided and not empty
-                                try { if (name && typeof name === 'string' && name.trim()) planet.name = name.trim(); } catch (e) {}
+                                try { if (name && typeof name === 'string' && name.trim()) { planet.name = name.trim(); try { if (typeof stickString === 'function') planet.stickString = stickString(planet.name); } catch (e) {} } } catch (e) {}
 
                                 // Mark civilization colonized and apply reputation
                                 try { planet.civilization.colonized = 1; if (typeof planet.civilization.applyReputationToRelationship === 'function') planet.civilization.applyReputationToRelationship(); } catch (e) {}
@@ -4220,70 +4241,67 @@ class Factory extends PlanetaryStation {
                     // Handlers
                         buyBtn.addEventListener('click', (ev) => {
                             try { ev.preventDefault(); ev.stopPropagation(); ev.stopImmediatePropagation(); } catch (e) {}
-                        let marketItem = planetOfferings[idx];
-                        if (!marketItem || marketItem.units <= 0) {
-                            if (typeof setPanelMessage === 'function') setPanelMessage('Item out of stock'); else { let panelMsg = panel.querySelector('.panel-message'); if (panelMsg) { panelMsg.textContent = 'Item out of stock'; } else { G.showMessage('Item out of stock'); } }
-                            return;
-                        }
+                            let marketItem = planetOfferings[idx];
+                            if (!marketItem || marketItem.units <= 0) {
+                                if (typeof setPanelMessage === 'function') setPanelMessage('Item out of stock'); else { let panelMsg = panel.querySelector('.panel-message'); if (panelMsg) { panelMsg.textContent = 'Item out of stock'; } else { G.showMessage('Item out of stock'); } }
+                                return;
+                            }
 
-                        let maxByStock = marketItem.units;
-                        let maxByCredits = Math.floor((ship.credits || 0) / marketItem.price);
-                        let remainingSpace = getShipRemainingSpace(ship);
-                        let def = getCargoDefByName(marketItem.name);
-                        let perUnitSpace = def && def.storage_units ? def.storage_units : 1;
-                        let maxBySpace = Math.floor(remainingSpace / perUnitSpace);
-                        let maxAllowed = Math.max(0, Math.min(maxByStock, maxByCredits, maxBySpace));
+                            let maxByStock = marketItem.units;
+                            let maxByCredits = Math.floor((ship.credits || 0) / marketItem.price);
+                            let remainingSpace = getShipRemainingSpace(ship);
+                            let def = getCargoDefByName(marketItem.name);
+                            let perUnitSpace = def && def.storage_units ? def.storage_units : 1;
+                            let maxBySpace = Math.floor(remainingSpace / perUnitSpace);
+                            let maxAllowed = Math.max(0, Math.min(maxByStock, maxByCredits, maxBySpace));
 
-                        if (maxAllowed <= 0) {
-                            if (typeof setPanelMessage === 'function') setPanelMessage(NO_CARGO_SPACE_MSG); else { let panelMsg = panel.querySelector('.panel-message'); if (panelMsg) { panelMsg.textContent = NO_CARGO_SPACE_MSG; } else { G.showMessage(NO_CARGO_SPACE_MSG); } }
-                            return;
-                        }
+                            if (maxAllowed <= 0) {
+                                if (typeof setPanelMessage === 'function') setPanelMessage(NO_CARGO_SPACE_MSG); else { let panelMsg = panel.querySelector('.panel-message'); if (panelMsg) { panelMsg.textContent = NO_CARGO_SPACE_MSG; } else { G.showMessage(NO_CARGO_SPACE_MSG); } }
+                                return;
+                            }
 
-                        // Show quantity controls and set limits
-                        qtyInput.max = String(maxAllowed);
-                        qtyInput.value = '1';
-                        qtyWrapper.classList.add('open');
-                        buyBtn.classList.add('hidden');
+                            // Show quantity controls and set limits
+                            qtyInput.max = String(maxAllowed);
+                            qtyInput.value = '1';
+                            qtyWrapper.classList.add('open');
+                            buyBtn.classList.add('hidden');
+                            // Focus the qty input so keyboard actions work immediately
+                            try { setTimeout(() => { try { qtyInput.focus(); qtyInput.select(); } catch (e) {} }, 20); } catch (e) {}
 
-                        // Wire quantity controls with event suppression
-                        minus.type = 'button';
-                        plus.type = 'button';
-                        maxBtn.type = 'button';
-                        cancelBtn.type = 'button';
-                        confirmBtn.type = 'button';
+                            // Wire quantity controls with event suppression
+                            minus.type = 'button';
+                            plus.type = 'button';
+                            maxBtn.type = 'button';
+                            cancelBtn.type = 'button';
+                            confirmBtn.type = 'button';
 
-                        minus.addEventListener('click', (ev) => { try { ev.preventDefault(); ev.stopPropagation(); ev.stopImmediatePropagation(); } catch(e){}; qtyInput.value = String(Math.max(1, parseInt(qtyInput.value || '1', 10) - 1)); });
-                        plus.addEventListener('click', (ev) => { try { ev.preventDefault(); ev.stopPropagation(); ev.stopImmediatePropagation(); } catch(e){}; qtyInput.value = String(Math.min(maxAllowed, parseInt(qtyInput.value || '1', 10) + 1)); });
-                        maxBtn.addEventListener('click', (ev) => { try { ev.preventDefault(); ev.stopPropagation(); ev.stopImmediatePropagation(); } catch(e){}; qtyInput.value = String(maxAllowed); });
+                            // Add handlers. Use named functions so we can remove them when closing the UI to avoid duplicate handlers
+                            let onMinus = (ev) => { try { ev.preventDefault(); ev.stopPropagation(); ev.stopImmediatePropagation(); } catch(e){}; qtyInput.value = String(Math.max(1, parseInt(qtyInput.value || '1', 10) - 1)); };
+                            let onPlus = (ev) => { try { ev.preventDefault(); ev.stopPropagation(); ev.stopImmediatePropagation(); } catch(e){}; qtyInput.value = String(Math.min(maxAllowed, parseInt(qtyInput.value || '1', 10) + 1)); };
+                            let onMax = (ev) => { try { ev.preventDefault(); ev.stopPropagation(); ev.stopImmediatePropagation(); } catch(e){}; qtyInput.value = String(maxAllowed); };
 
-                        cancelBtn.addEventListener('click', (ev) => {
-                            try { ev.preventDefault(); ev.stopPropagation(); ev.stopImmediatePropagation(); } catch(e){}
-                            qtyWrapper.classList.remove('open');
-                            buyBtn.classList.remove('hidden');
-                        });
+                            let onConfirm = (ev) => {
+                                try { ev.preventDefault(); ev.stopPropagation(); ev.stopImmediatePropagation(); } catch(e){}
+                                let qty = Math.max(0, Math.min(parseInt(qtyInput.value, 10) || 0, parseInt(qtyInput.max, 10) || 0));
+                                if (qty <= 0) { cleanupQtyUI(); return; }
 
-                        confirmBtn.addEventListener('click', (ev) => {
-                            try { ev.preventDefault(); ev.stopPropagation(); ev.stopImmediatePropagation(); } catch(e){}
-                            let qty = Math.max(0, Math.min(parseInt(qtyInput.value, 10) || 0, parseInt(qtyInput.max, 10) || 0));
-                            if (qty <= 0) return;
+                                let cost = qty * marketItem.price;
+                                ship.credits = (ship.credits || 0) - cost;
+                                ship.cargo = ship.cargo || {};
+                                ship.cargo[marketItem.name] = (ship.cargo[marketItem.name] || 0) + qty;
+                                marketItem.units -= qty;
 
-                            let cost = qty * marketItem.price;
-                            ship.credits = (ship.credits || 0) - cost;
-                            ship.cargo = ship.cargo || {};
-                            ship.cargo[marketItem.name] = (ship.cargo[marketItem.name] || 0) + qty;
-                            marketItem.units -= qty;
+                                G.showMessage('Purchased ' + qty + ' ' + marketItem.name + ' for ' + cost + ' credits');
 
-                            G.showMessage('Purchased ' + qty + ' ' + marketItem.name + ' for ' + cost + ' credits');
+                                // If this market slot has been depleted, replace it with a new offering
+                                try {
+                                    if (marketItem.units <= 0) {
+                                        replaceMarketItem(planet, idx);
+                                    }
+                                } catch (e) { /* ignore */ }
 
-                            // If this market slot has been depleted, replace it with a new offering
-                            try {
-                                if (marketItem.units <= 0) {
-                                    replaceMarketItem(planet, idx);
-                                }
-                            } catch (e) { /* ignore */ }
-
-                            // Update UI in place instead of full panel refresh
-                            try {
+                                // Update UI in place instead of full panel refresh
+                                try {
                                 // Update credits indicator
                                 let creditsIndicator = panel.querySelector('.credits-indicator');
                                 if (creditsIndicator) creditsIndicator.textContent = `Ship credits: ${ship && ship.credits ? ship.credits : 0} cr`;
@@ -4358,12 +4376,53 @@ class Factory extends PlanetaryStation {
                                         } catch (e) {}
                                     }
                                 }
-                            } catch (e) {
-                                // If in-place update fails for any reason, fall back to full refresh
-                                try { panel.remove(); window.createPlanetaryTradePanel(planet, ship); } catch (e2) {}
-                            }
+                                } catch (e) {
+                                    // If in-place update fails for any reason, fall back to full refresh
+                                    try { panel.remove(); window.createPlanetaryTradePanel(planet, ship); } catch (e2) {}
+                                }
+                                // After updating, close the qty UI and remove handlers
+                                cleanupQtyUI();
+                            };
+
+                            let onCancel = (ev) => { try { ev.preventDefault(); ev.stopPropagation(); ev.stopImmediatePropagation(); } catch(e){}; cleanupQtyUI(); };
+
+                            // Key handler: Enter confirms, Escape cancels
+                            let onKeyDown = (ev) => {
+                                try {
+                                    if (ev.key === 'Enter' || ev.keyCode === 13) {
+                                        try { ev.preventDefault(); ev.stopPropagation(); } catch (e) {}
+                                        onConfirm(ev);
+                                    } else if (ev.key === 'Escape' || ev.keyCode === 27) {
+                                        try { ev.preventDefault(); ev.stopPropagation(); } catch (e) {}
+                                        onCancel(ev);
+                                    }
+                                } catch (e) {}
+                            };
+
+                            let cleanupQtyUI = () => {
+                                try {
+                                    // Hide UI
+                                    qtyWrapper.classList.remove('open');
+                                    buyBtn.classList.remove('hidden');
+                                    // Remove listeners
+                                    minus.removeEventListener('click', onMinus);
+                                    plus.removeEventListener('click', onPlus);
+                                    maxBtn.removeEventListener('click', onMax);
+                                    cancelBtn.removeEventListener('click', onCancel);
+                                    confirmBtn.removeEventListener('click', onConfirm);
+                                    try { document.removeEventListener('keydown', onKeyDown); } catch (e) {}
+                                    // Return focus to the Buy button
+                                    try { buyBtn.focus(); } catch (e) {}
+                                } catch (e) {}
+                            };
+
+                            minus.addEventListener('click', onMinus);
+                            plus.addEventListener('click', onPlus);
+                            maxBtn.addEventListener('click', onMax);
+                            cancelBtn.addEventListener('click', onCancel);
+                            confirmBtn.addEventListener('click', onConfirm);
+                            try { document.addEventListener('keydown', onKeyDown); } catch (e) {}
                         });
-                    });
 
                     controls.appendChild(buyBtn);
                     controls.appendChild(qtyWrapper);
@@ -5789,9 +5848,8 @@ soundPool = (settings, poolSize = 1) => {
     };
 };
 
-let explosionSound = soundPool([3,,0.3346,0.2953,0.4941,0.1205,,-0.2565,,,,,,,,,-0.1093,-0.2344,1,,,,,0.5]);
-
-let shootSound = soundPool([0,,0.1584,0.1384,0.2216,0.63,,-0.2653,,,,,,0.1485,,,,,1,,,0.1888,,0.5], 10),
+let explosionSound = soundPool([3,,0.3346,0.2953,0.4941,0.1205,,-0.2565,,,,,,,,,-0.1093,-0.2344,1,,,,,0.5]),
+    shootSound = soundPool([0,,0.1584,0.1384,0.2216,0.63,,-0.2653,,,,,,0.1485,,,,,1,,,0.1888,,0.5], 10),
     promptSound = soundPool([1,0.12,0.1,0.0079,0.32,0.83,0.0017,,0.04,0.34,0.96,0.0056,,,0.8422,0.0048,,-0.0327,1,,,,,0.37]),
     selectSound = soundPool([0,,0.1696,,0.0103,0.2617,,,,,,,,0.1416,,,,,1,,,0.1,,0.5]),
     pickupSound = soundPool([0,,0.0323,0.3656,0.1925,0.4276,,,,,,,,,,,,,1,,,,,0.5], 10),
@@ -6376,6 +6434,33 @@ class Game {
                     fill();
                 });
             });
+
+            // Draw green directional arrows for every planet the player has colonized
+            try {
+                let colonized = U.bodies.filter(b => b instanceof Planet && b.civilization && b.civilization.colonized);
+                colonized.forEach(planet => {
+                    if (dist(planet, U.playerShip) < (planet.reachRadius || 0)) return;
+
+                    let angle = angleBetween(U.playerShip, planet);
+
+                    wrap(() => {
+                        let distanceOnCircle = limit(0, (dist(planet, U.playerShip) - (planet.reachRadius || 0)) / 4000, 1) * 200 + 50;
+
+                        translate(1000 / 2 + cos(angle) * distanceOnCircle, CANVAS_HEIGHT / 2 + sin(angle) * distanceOnCircle);
+                        rotate(angle);
+
+                        // Bright green arrow slightly smaller than mission arrows
+                        R.globalAlpha = 0.95;
+                        fs('#0f0');
+                        beginPath();
+                        moveTo(0, 0);
+                        lineTo(-10, 7);
+                        lineTo(-5, 0);
+                        lineTo(-10, -7);
+                        fill();
+                    });
+                });
+            } catch (e) { /* ignore HUD arrow errors */ }
 
             // Prompt
             let promptText = G.promptText();

@@ -70,7 +70,9 @@
             if (!pick) pick = candidates[Math.floor(Math.random() * candidates.length)];
 
             const units = 100 + Math.floor(Math.random() * 901); // 100-1000
-            const price = getPlanetPrice(planet, pick.cargo);
+            let price = getPlanetPrice(planet, pick.cargo);
+            // If planet is colonized, halve the price (minimum 1)
+            try { if (planet && planet.civilization && planet.civilization.colonized) price = Math.max(1, Math.floor(price / 2)); } catch (e) {}
             planet.market[index] = { name: pick.cargo, units, price };
 
             // Debug: log replacement
@@ -336,7 +338,7 @@
                         const colonizeBtn = document.createElement('button');
                         colonizeBtn.type = 'button';
                         colonizeBtn.textContent = 'Colonize Planet';
-                        colonizeBtn.title = 'Required: 100 units of any 1 of: Terraform Clay, Biofoam Packs, CryoPods, Quantum Grain';
+                        colonizeBtn.title = 'Required: 100 units of selected cargo types (see checklist)';
 
                         // Checklist UI
                         const checklist = document.createElement('div');
@@ -354,6 +356,11 @@
                             try {
                                 const shipCargo = ship && ship.cargo ? ship.cargo : {};
                                 const nodes = checklist.querySelectorAll('.colonize-check-item');
+                                // Determine how many cargo types are required based on already-colonized planets
+                                let alreadyColonized = 0;
+                                try { alreadyColonized = U.bodies.filter(b => b instanceof Planet && b.civilization && b.civilization.colonized).length; } catch (e) { alreadyColonized = 0; }
+                                const requiredCount = Math.min(4, (alreadyColonized || 0) + 1);
+
                                 nodes.forEach(n => {
                                     try {
                                         const name = n.getAttribute('data-cargo-name');
@@ -362,6 +369,17 @@
                                         if (have) n.style.color = '#66ff66'; else n.style.color = '#fff';
                                     } catch (e) {}
                                 });
+
+                                // Update a short header showing how many distinct types are required
+                                try {
+                                    let header = colonizeWrapper.querySelector('.colonize-requirement');
+                                    if (!header) {
+                                        header = document.createElement('div');
+                                        header.className = 'colonize-requirement';
+                                        colonizeWrapper.insertBefore(header, checklist);
+                                    }
+                                    header.textContent = `Requirement: ${requiredCount} of the following cargo types (100 units each)`;
+                                } catch (e) {}
                             } catch (e) {}
                         }
 
@@ -370,22 +388,25 @@
                             try {
                                 // Required cargo names
                                 const required = reqList;
-                                const requiredCount = 1; // only need 1 of the 4 for now
+                                // Compute required distinct cargo types based on how many planets are already colonized
+                                let alreadyColonized = 0;
+                                try { alreadyColonized = U.bodies.filter(b => b instanceof Planet && b.civilization && b.civilization.colonized).length; } catch (e) { alreadyColonized = 0; }
+                                const requiredCount = Math.min(4, (alreadyColonized || 0) + 1);
                                 const shipCargo = ship && ship.cargo ? ship.cargo : {};
                                 const provided = required.filter(n => (shipCargo[n] || 0) >= 100);
                                 if (provided.length < requiredCount) {
-                                    setPanelMessage('Colonization requires 100 units of any 1 of: Terraform Clay, Biofoam Packs, CryoPods, Quantum Grain');
+                                    setPanelMessage(`Colonization requires ${requiredCount} distinct cargo types with 100 units each from: ${required.join(', ')}`);
                                     updateColonizeChecklist();
                                     return;
                                 }
 
-                                // Consume 100 units from the first provided item
+                                // Consume 100 units from the first N provided distinct items
                                 provided.slice(0, requiredCount).forEach(n => {
                                     try { ship.cargo[n] = (ship.cargo[n] || 0) - 100; if (ship.cargo[n] <= 0) delete ship.cargo[n]; } catch (e) {}
                                 });
 
                                 // Set planet name if provided and not empty
-                                try { if (name && typeof name === 'string' && name.trim()) planet.name = name.trim(); } catch (e) {}
+                                try { if (name && typeof name === 'string' && name.trim()) { planet.name = name.trim(); try { if (typeof stickString === 'function') planet.stickString = stickString(planet.name); } catch (e) {} } } catch (e) {}
 
                                 // Mark civilization colonized and apply reputation
                                 try { planet.civilization.colonized = true; if (typeof planet.civilization.applyReputationToRelationship === 'function') planet.civilization.applyReputationToRelationship(); } catch (e) {}
@@ -605,70 +626,67 @@
                     // Handlers
                         buyBtn.addEventListener('click', (ev) => {
                             try { ev.preventDefault(); ev.stopPropagation(); ev.stopImmediatePropagation(); } catch (e) {}
-                        const marketItem = planetOfferings[idx];
-                        if (!marketItem || marketItem.units <= 0) {
-                            if (typeof setPanelMessage === 'function') setPanelMessage('Item out of stock'); else { const panelMsg = panel.querySelector('.panel-message'); if (panelMsg) { panelMsg.textContent = 'Item out of stock'; } else { G.showMessage('Item out of stock'); } }
-                            return;
-                        }
+                            const marketItem = planetOfferings[idx];
+                            if (!marketItem || marketItem.units <= 0) {
+                                if (typeof setPanelMessage === 'function') setPanelMessage('Item out of stock'); else { const panelMsg = panel.querySelector('.panel-message'); if (panelMsg) { panelMsg.textContent = 'Item out of stock'; } else { G.showMessage('Item out of stock'); } }
+                                return;
+                            }
 
-                        const maxByStock = marketItem.units;
-                        const maxByCredits = Math.floor((ship.credits || 0) / marketItem.price);
-                        const remainingSpace = getShipRemainingSpace(ship);
-                        const def = getCargoDefByName(marketItem.name);
-                        const perUnitSpace = def && def.storage_units ? def.storage_units : 1;
-                        const maxBySpace = Math.floor(remainingSpace / perUnitSpace);
-                        const maxAllowed = Math.max(0, Math.min(maxByStock, maxByCredits, maxBySpace));
+                            const maxByStock = marketItem.units;
+                            const maxByCredits = Math.floor((ship.credits || 0) / marketItem.price);
+                            const remainingSpace = getShipRemainingSpace(ship);
+                            const def = getCargoDefByName(marketItem.name);
+                            const perUnitSpace = def && def.storage_units ? def.storage_units : 1;
+                            const maxBySpace = Math.floor(remainingSpace / perUnitSpace);
+                            const maxAllowed = Math.max(0, Math.min(maxByStock, maxByCredits, maxBySpace));
 
-                        if (maxAllowed <= 0) {
-                            if (typeof setPanelMessage === 'function') setPanelMessage(NO_CARGO_SPACE_MSG); else { const panelMsg = panel.querySelector('.panel-message'); if (panelMsg) { panelMsg.textContent = NO_CARGO_SPACE_MSG; } else { G.showMessage(NO_CARGO_SPACE_MSG); } }
-                            return;
-                        }
+                            if (maxAllowed <= 0) {
+                                if (typeof setPanelMessage === 'function') setPanelMessage(NO_CARGO_SPACE_MSG); else { const panelMsg = panel.querySelector('.panel-message'); if (panelMsg) { panelMsg.textContent = NO_CARGO_SPACE_MSG; } else { G.showMessage(NO_CARGO_SPACE_MSG); } }
+                                return;
+                            }
 
-                        // Show quantity controls and set limits
-                        qtyInput.max = String(maxAllowed);
-                        qtyInput.value = '1';
-                        qtyWrapper.classList.add('open');
-                        buyBtn.classList.add('hidden');
+                            // Show quantity controls and set limits
+                            qtyInput.max = String(maxAllowed);
+                            qtyInput.value = '1';
+                            qtyWrapper.classList.add('open');
+                            buyBtn.classList.add('hidden');
+                            // Focus the qty input so keyboard actions work immediately
+                            try { setTimeout(() => { try { qtyInput.focus(); qtyInput.select(); } catch (e) {} }, 20); } catch (e) {}
 
-                        // Wire quantity controls with event suppression
-                        minus.type = 'button';
-                        plus.type = 'button';
-                        maxBtn.type = 'button';
-                        cancelBtn.type = 'button';
-                        confirmBtn.type = 'button';
+                            // Wire quantity controls with event suppression
+                            minus.type = 'button';
+                            plus.type = 'button';
+                            maxBtn.type = 'button';
+                            cancelBtn.type = 'button';
+                            confirmBtn.type = 'button';
 
-                        minus.addEventListener('click', (ev) => { try { ev.preventDefault(); ev.stopPropagation(); ev.stopImmediatePropagation(); } catch(e){}; qtyInput.value = String(Math.max(1, parseInt(qtyInput.value || '1', 10) - 1)); });
-                        plus.addEventListener('click', (ev) => { try { ev.preventDefault(); ev.stopPropagation(); ev.stopImmediatePropagation(); } catch(e){}; qtyInput.value = String(Math.min(maxAllowed, parseInt(qtyInput.value || '1', 10) + 1)); });
-                        maxBtn.addEventListener('click', (ev) => { try { ev.preventDefault(); ev.stopPropagation(); ev.stopImmediatePropagation(); } catch(e){}; qtyInput.value = String(maxAllowed); });
+                            // Add handlers. Use named functions so we can remove them when closing the UI to avoid duplicate handlers
+                            const onMinus = (ev) => { try { ev.preventDefault(); ev.stopPropagation(); ev.stopImmediatePropagation(); } catch(e){}; qtyInput.value = String(Math.max(1, parseInt(qtyInput.value || '1', 10) - 1)); };
+                            const onPlus = (ev) => { try { ev.preventDefault(); ev.stopPropagation(); ev.stopImmediatePropagation(); } catch(e){}; qtyInput.value = String(Math.min(maxAllowed, parseInt(qtyInput.value || '1', 10) + 1)); };
+                            const onMax = (ev) => { try { ev.preventDefault(); ev.stopPropagation(); ev.stopImmediatePropagation(); } catch(e){}; qtyInput.value = String(maxAllowed); };
 
-                        cancelBtn.addEventListener('click', (ev) => {
-                            try { ev.preventDefault(); ev.stopPropagation(); ev.stopImmediatePropagation(); } catch(e){}
-                            qtyWrapper.classList.remove('open');
-                            buyBtn.classList.remove('hidden');
-                        });
+                            const onConfirm = (ev) => {
+                                try { ev.preventDefault(); ev.stopPropagation(); ev.stopImmediatePropagation(); } catch(e){}
+                                const qty = Math.max(0, Math.min(parseInt(qtyInput.value, 10) || 0, parseInt(qtyInput.max, 10) || 0));
+                                if (qty <= 0) { cleanupQtyUI(); return; }
 
-                        confirmBtn.addEventListener('click', (ev) => {
-                            try { ev.preventDefault(); ev.stopPropagation(); ev.stopImmediatePropagation(); } catch(e){}
-                            const qty = Math.max(0, Math.min(parseInt(qtyInput.value, 10) || 0, parseInt(qtyInput.max, 10) || 0));
-                            if (qty <= 0) return;
+                                const cost = qty * marketItem.price;
+                                ship.credits = (ship.credits || 0) - cost;
+                                ship.cargo = ship.cargo || {};
+                                ship.cargo[marketItem.name] = (ship.cargo[marketItem.name] || 0) + qty;
+                                marketItem.units -= qty;
 
-                            const cost = qty * marketItem.price;
-                            ship.credits = (ship.credits || 0) - cost;
-                            ship.cargo = ship.cargo || {};
-                            ship.cargo[marketItem.name] = (ship.cargo[marketItem.name] || 0) + qty;
-                            marketItem.units -= qty;
+                                G.showMessage('Purchased ' + qty + ' ' + marketItem.name + ' for ' + cost + ' credits');
 
-                            G.showMessage('Purchased ' + qty + ' ' + marketItem.name + ' for ' + cost + ' credits');
+                                // If this market slot has been depleted, replace it with a new offering
+                                try {
+                                    if (marketItem.units <= 0) {
+                                        replaceMarketItem(planet, idx);
+                                    }
+                                } catch (e) { /* ignore */ }
 
-                            // If this market slot has been depleted, replace it with a new offering
-                            try {
-                                if (marketItem.units <= 0) {
-                                    replaceMarketItem(planet, idx);
-                                }
-                            } catch (e) { /* ignore */ }
-
-                            // Update UI in place instead of full panel refresh
-                            try {
+                                // Update UI in place instead of full panel refresh
+                                try {
                                 // Update credits indicator
                                 const creditsIndicator = panel.querySelector('.credits-indicator');
                                 if (creditsIndicator) creditsIndicator.textContent = `Ship credits: ${ship && ship.credits ? ship.credits : 0} cr`;
@@ -743,12 +761,53 @@
                                         } catch (e) {}
                                     }
                                 }
-                            } catch (e) {
-                                // If in-place update fails for any reason, fall back to full refresh
-                                try { panel.remove(); window.createPlanetaryTradePanel(planet, ship); } catch (e2) {}
-                            }
+                                } catch (e) {
+                                    // If in-place update fails for any reason, fall back to full refresh
+                                    try { panel.remove(); window.createPlanetaryTradePanel(planet, ship); } catch (e2) {}
+                                }
+                                // After updating, close the qty UI and remove handlers
+                                cleanupQtyUI();
+                            };
+
+                            const onCancel = (ev) => { try { ev.preventDefault(); ev.stopPropagation(); ev.stopImmediatePropagation(); } catch(e){}; cleanupQtyUI(); };
+
+                            // Key handler: Enter confirms, Escape cancels
+                            const onKeyDown = (ev) => {
+                                try {
+                                    if (ev.key === 'Enter' || ev.keyCode === 13) {
+                                        try { ev.preventDefault(); ev.stopPropagation(); } catch (e) {}
+                                        onConfirm(ev);
+                                    } else if (ev.key === 'Escape' || ev.keyCode === 27) {
+                                        try { ev.preventDefault(); ev.stopPropagation(); } catch (e) {}
+                                        onCancel(ev);
+                                    }
+                                } catch (e) {}
+                            };
+
+                            const cleanupQtyUI = () => {
+                                try {
+                                    // Hide UI
+                                    qtyWrapper.classList.remove('open');
+                                    buyBtn.classList.remove('hidden');
+                                    // Remove listeners
+                                    minus.removeEventListener('click', onMinus);
+                                    plus.removeEventListener('click', onPlus);
+                                    maxBtn.removeEventListener('click', onMax);
+                                    cancelBtn.removeEventListener('click', onCancel);
+                                    confirmBtn.removeEventListener('click', onConfirm);
+                                    try { document.removeEventListener('keydown', onKeyDown); } catch (e) {}
+                                    // Return focus to the Buy button
+                                    try { buyBtn.focus(); } catch (e) {}
+                                } catch (e) {}
+                            };
+
+                            minus.addEventListener('click', onMinus);
+                            plus.addEventListener('click', onPlus);
+                            maxBtn.addEventListener('click', onMax);
+                            cancelBtn.addEventListener('click', onCancel);
+                            confirmBtn.addEventListener('click', onConfirm);
+                            try { document.addEventListener('keydown', onKeyDown); } catch (e) {}
                         });
-                    });
 
                     controls.appendChild(buyBtn);
                     controls.appendChild(qtyWrapper);
