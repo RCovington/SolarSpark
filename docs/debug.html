@@ -110,6 +110,218 @@ let R, // canvas context
 
 let dismiss = 'Dismiss';
 
+// Scoring system and persistent high scores
+(function(){
+    try { console.debug && console.debug('score: module init'); } catch (e) {}
+
+    let HS_KEY = 'ss_highscores_v1';
+    let MAX_ENTRIES = 10;
+
+    let Score = {
+        _score: 0,
+        _materialsCount: 0, // counts resources picked up; 1 point per 50
+        _highScores: [],
+
+        reset() {
+            this._score = 0;
+            this._materialsCount = 0;
+        },
+
+        add(points, reason) {
+            try {
+                points = (typeof points === 'number') ? points : 0;
+                if (!isFinite(points) || points === 0) return this._score;
+                this._score += points;
+                // Broadcast for any HUD listeners
+                try { if (window.G && G.eventHub && typeof G.eventHub.emit === 'function') G.eventHub.emit('score:changed', {delta: points, total: this._score, reason}); } catch (e) {}
+                return this._score;
+            } catch (e) { return this._score; }
+        },
+
+        get() { return this._score || 0; },
+
+        onMaterialCollected(units) {
+            try {
+                let add = Math.max(0, units|0);
+                if (!add) return;
+                this._materialsCount += add;
+                while (this._materialsCount >= 50) {
+                    this._materialsCount -= 50;
+                    this.add(1, 'materials');
+                }
+            } catch (e) {}
+        },
+
+        loadHighScores() {
+            try {
+                let raw = (typeof localStorage !== 'undefined') ? localStorage.getItem(HS_KEY) : null;
+                let arr = raw ? JSON.parse(raw) : [];
+                if (Array.isArray(arr)) this._highScores = arr.filter(x => x && typeof x.score === 'number').slice(0, MAX_ENTRIES);
+            } catch (e) { this._highScores = []; }
+            return this._highScores;
+        },
+
+        saveHighScores() {
+            try { if (typeof localStorage !== 'undefined') localStorage.setItem(HS_KEY, JSON.stringify(this._highScores || [])); } catch (e) {}
+        },
+
+        top() { return (this._highScores && this._highScores.slice().sort((a,b)=>b.score-a.score)) || []; },
+
+        qualifies(score) {
+            try {
+                score = (typeof score === 'number') ? score : this.get();
+                let list = this.top();
+                if (list.length < MAX_ENTRIES) return 1;
+                let min = list[list.length - 1].score;
+                return score > min;
+            } catch (e) { return 0; }
+        },
+
+        addHighScore(name, score) {
+            try {
+                name = (name && String(name).trim()) || 'Anonymous';
+                score = (typeof score === 'number') ? score : this.get();
+                let entry = { name, score, date: Date.now() };
+                let list = this.top();
+                list.push(entry);
+                list.sort((a,b)=>b.score-a.score);
+                this._highScores = list.slice(0, MAX_ENTRIES);
+                this.saveHighScores();
+                return 1;
+            } catch (e) { return 0; }
+        },
+
+        showHighScoreBoard() {
+            try {
+                let existing = document.getElementById('ss-highscore-board');
+                if (existing) try { existing.remove(); } catch (e) {}
+                let wrap = document.createElement('div');
+                wrap.id = 'ss-highscore-board';
+                wrap.style.position = 'fixed';
+                wrap.style.left = '50%';
+                wrap.style.top = '50%';
+                wrap.style.transform = 'translate(-50%, -50%)';
+                wrap.style.background = 'rgba(0,0,0,0.8)';
+                wrap.style.color = '#fff';
+                wrap.style.padding = '16px 20px';
+                wrap.style.border = '1px solid #888';
+                wrap.style.borderRadius = '8px';
+                wrap.style.fontFamily = 'monospace';
+                wrap.style.zIndex = 12000;
+                wrap.style.minWidth = '380px';
+
+                let h = document.createElement('div');
+                h.textContent = 'High Scores';
+                h.style.fontWeight = 'bold';
+                h.style.fontSize = '18px';
+                h.style.marginBottom = '8px';
+                wrap.appendChild(h);
+
+                let list = this.top();
+                let ol = document.createElement('ol');
+                ol.style.margin = '0 0 12px 20px';
+                list.slice(0, MAX_ENTRIES).forEach(e => {
+                    let li = document.createElement('li');
+                    let d = new Date(e.date || Date.now());
+                    li.textContent = `${e.name} — ${e.score} (${d.toLocaleDateString()})`;
+                    ol.appendChild(li);
+                });
+                wrap.appendChild(ol);
+
+                let controls = document.createElement('div');
+                controls.style.textAlign = 'right';
+                controls.innerHTML = '<button type="button" id="ss-hs-close">Close</button>';
+                wrap.appendChild(controls);
+
+                document.body.appendChild(wrap);
+                try { document.getElementById('ss-hs-close').addEventListener('click', () => { try { wrap.remove(); } catch (e) {} }); } catch (e) {}
+            } catch (e) {}
+        },
+
+        showHighScorePromptIfNeeded() {
+            try {
+                let score = this.get();
+                if (!this.qualifies(score)) { this.showHighScoreBoard(); return 0; }
+                let existing = document.getElementById('ss-highscore-prompt');
+                if (existing) return 1;
+                let wrap = document.createElement('div');
+                wrap.id = 'ss-highscore-prompt';
+                wrap.style.position = 'fixed';
+                wrap.style.left = '50%';
+                wrap.style.top = '50%';
+                wrap.style.transform = 'translate(-50%, -50%)';
+                wrap.style.background = 'rgba(0,0,0,0.9)';
+                wrap.style.color = '#fff';
+                wrap.style.padding = '16px 20px';
+                wrap.style.border = '1px solid #888';
+                wrap.style.borderRadius = '8px';
+                wrap.style.fontFamily = 'monospace';
+                wrap.style.zIndex = 12000;
+                wrap.style.minWidth = '380px';
+
+                let title = document.createElement('div');
+                title.textContent = 'New High Score!';
+                title.style.fontWeight = 'bold';
+                title.style.fontSize = '18px';
+                title.style.marginBottom = '8px';
+                wrap.appendChild(title);
+
+                let label = document.createElement('label');
+                label.textContent = 'Enter your name:';
+                label.style.display = 'block';
+                label.style.marginBottom = '6px';
+                wrap.appendChild(label);
+
+                let input = document.createElement('input');
+                input.type = 'text';
+                input.maxLength = 24;
+                input.style.width = '100%';
+                input.style.marginBottom = '10px';
+                wrap.appendChild(input);
+
+                let buttons = document.createElement('div');
+                buttons.style.textAlign = 'right';
+                let saveBtn = document.createElement('button');
+                saveBtn.type = 'button';
+                saveBtn.textContent = 'Save';
+                let skipBtn = document.createElement('button');
+                skipBtn.type = 'button';
+                skipBtn.textContent = 'Skip';
+                skipBtn.style.marginLeft = '8px';
+                buttons.appendChild(saveBtn);
+                buttons.appendChild(skipBtn);
+                wrap.appendChild(buttons);
+
+                document.body.appendChild(wrap);
+                setTimeout(() => { try { input.focus(); input.select(); } catch (e) {} }, 50);
+
+                let finish = (save) => {
+                    try {
+                        if (save) {
+                            let name = input.value && input.value.trim() ? input.value.trim() : 'Anonymous';
+                            this.addHighScore(name, score);
+                        }
+                        try { wrap.remove(); } catch (e) {}
+                        this.showHighScoreBoard();
+                    } catch (e) {}
+                };
+                saveBtn.addEventListener('click', () => finish(1));
+                skipBtn.addEventListener('click', () => finish(0));
+                input.addEventListener('keydown', (ev) => {
+                    if (ev.key === 'Enter') finish(1);
+                    if (ev.key === 'Escape') finish(0);
+                });
+                return 1;
+            } catch (e) { return 0; }
+        }
+    };
+
+    // expose
+    window.Score = Score;
+    try { Score.loadHighScores(); } catch (e) {}
+    try { Score.reset(); } catch (e) {}
+})();
+
 limit = (a, b, c) => {
     if (b < a) return a;
     if (b > c) return c;
@@ -1579,6 +1791,7 @@ class Asteroid extends Body {
         }
 
         if ((this.health -= amount) <= 0) {
+            try { if (projectile && projectile.owner === U.playerShip && window.Score) Score.add(1, 'asteroid'); } catch (e) {}
             this.explode();
         }
     }
@@ -2177,6 +2390,8 @@ class Ship {
     }
 
     explode() {
+        if (this._exploding) return;
+        this._exploding = 1;
         this.health = 0;
 
         for (let i = 0 ; i < 100 ; i++) {
@@ -2205,8 +2420,8 @@ class Ship {
             if (!shouldDropCargo && U.pirates && U.pirates.indexOf(this) >= 0) shouldDropCargo = 1;
         } catch (e) {}
 
-        U.remove(U.ships, this);
-        U.remove(U.pirates, this);
+    U.remove(U.ships, this);
+    U.remove(U.pirates, this);
 
         if (V.isVisible(this)) {
             explosionSound();
@@ -2215,7 +2430,7 @@ class Ship {
         // Drop raw resources
         U.dropResources(this.x, this.y, 10);
 
-        // If this ship qualifies, perform drop checks: 1/3 chance to drop cargo, 1/3 chance to drop credits
+    // If this ship qualifies, perform drop checks: 1/3 chance to drop cargo, 1/3 chance to drop credits
         try {
             // Drop raw resources and possible cargo/credits only if the destroyed ship is near the player's ship.
             // This avoids cluttering the world with loot from distant fights the player cannot reach.
@@ -2329,6 +2544,7 @@ class Ship {
         } catch (e) {
             // ignore any unexpected errors during explosion handling
         }
+        // Mark explosion handling complete (for GC); keep flag set to avoid re-entry
     }
 }
 
@@ -2503,21 +2719,27 @@ class PlayerShip extends Ship {
     }
 
     explode(projectile) {
-        super.explode(projectile);
-        // Decrement player lives and check for game over. If lives are exhausted, trigger game over instead of respawn.
+        // Guard against multiple decrements or re-entrant explosions in the same death
+        if (this._exploding) return;
+        this._exploding = 1;
+
+        // Decrement player lives first so HUD reflects the change immediately
         try {
             if (typeof G !== 'undefined') {
-                if (typeof G.lives !== 'number') G.lives = 3;
-                G.lives = Math.max(0, G.lives - 1);
-                try { console.debug && console.debug('Player exploded - lives remaining', G.lives); } catch (e) {}
-                if (G.lives <= 0) {
-                    try { if (typeof G.gameOver === 'function') G.gameOver(); } catch (e) {}
-                    // Do not continue with respawn flow
-                    if (this.thrustSound) { this.thrustSound.pause(); }
-                    return;
-                }
+                try { if (!Number.isFinite(G.lives)) G.lives = 0; } catch (e) { G.lives = (G.lives || 0); }
+                G.lives = Math.max(0, (G.lives | 0) - 1);
             }
         } catch (e) { /* ignore lives handling errors */ }
+
+        super.explode(projectile);
+
+        try { console.debug && console.debug('Player exploded - lives remaining', G.lives); } catch (e) {}
+        if (typeof G !== 'undefined' && G.lives <= 0) {
+            try { if (typeof G.gameOver === 'function') G.gameOver(); } catch (e) {}
+            // Do not continue with respawn flow
+            if (this.thrustSound) { this.thrustSound.pause(); }
+            return;
+        }
         // Respawn flow: preserve upgrades/baseStats but reset credits and cargo.
         setTimeout(() => {
             try {
@@ -2765,6 +2987,11 @@ class AIShip extends Ship {
 
         if (projectile.owner === U.playerShip) {
             this.civilization.updateRelationship(-0.3);
+            try {
+                let isEnemy = (this.civilization && typeof this.civilization.relationshipType === 'function' && this.civilization.relationshipType() === '#f00');
+                let isPirate = (U.pirates && U.pirates.indexOf(this) >= 0);
+                if (window.Score && (isEnemy || isPirate)) Score.add(5, 'enemy-ship');
+            } catch (e) {}
         }
     }
 
@@ -2843,6 +3070,7 @@ class PlanetaryStation {
 
         if (source == U.playerShip) {
             this.planet.civilization.updateRelationship(-0.2);
+            try { if (window.Score) Score.add(2, 'defense'); } catch (e) {}
         }
 
         G.eventHub.emit(0, this);
@@ -3028,10 +3256,12 @@ class Factory extends PlanetaryStation {
         let existing = document.getElementById(options.id || 'menu-panel');
         if (existing) existing.remove();
 
-        let panel = document.createElement('div');
+    let panel = document.createElement('div');
         panel.id = options.id || 'menu-panel';
         // Also add a class so CSS can target it regardless of id
         try { panel.classList.add('menu-panel'); } catch (e) {}
+    // Expose onClose on the panel element so callers can close programmatically
+    try { panel.onClose = options.onClose || null; } catch (e) {}
 
         let titleHtml = `<h2>${options.title || ''}</h2>`;
 
@@ -3113,6 +3343,15 @@ class Factory extends PlanetaryStation {
         } catch (e) { /* ignore */ }
 
         return panel;
+    };
+
+    // Provide a helper to close a panel element and honor its onClose if set
+    window.closeMenuPanel = function(panel) {
+        try {
+            if (!panel) return;
+            try { if (panel.onClose) panel.onClose(); } catch (e) {}
+            try { panel.remove(); } catch (e) {}
+        } catch (e) { /* ignore */ }
     };
 
 })();
@@ -3432,6 +3671,9 @@ class Factory extends PlanetaryStation {
                             ship.credits -= cost;
                             ship.upgrades[areaKey] = current + 1;
                             applyUpgradesToShip(ship);
+
+                            // Scoring: award points for an upgrade purchase
+                            try { if (window.Score) Score.add(20, 'upgrade'); } catch (e) {}
 
                             // Update credits display
                             try {
@@ -3953,17 +4195,21 @@ class Factory extends PlanetaryStation {
                         let colonizeBtn = document.createElement('button');
                         colonizeBtn.type = 'button';
                         colonizeBtn.textContent = 'Colonize Planet';
-                        colonizeBtn.title = 'Required: 100 units of selected cargo types (see checklist)';
+                        colonizeBtn.title = 'Required: units as listed (see checklist)';
 
                         // Checklist UI
                         let checklist = document.createElement('div');
                         checklist.className = 'colonize-checklist';
                         let reqList = ['Terraform Clay', 'Biofoam Packs', 'CryoPods', 'Quantum Grain'];
+                        // Per-item unit requirements: Terraform Clay needs only 50, others 100
+                        function requiredUnitsFor(name) {
+                            return name === 'Terraform Clay' ? 50 : 100;
+                        }
                         reqList.forEach(name => {
                             let item = document.createElement('div');
                             item.className = 'colonize-check-item';
                             item.setAttribute('data-cargo-name', name);
-                            item.textContent = `✗ ${name} (100)`;
+                            item.textContent = `✗ ${name} (${requiredUnitsFor(name)})`;
                             checklist.appendChild(item);
                         });
 
@@ -3979,8 +4225,9 @@ class Factory extends PlanetaryStation {
                                 nodes.forEach(n => {
                                     try {
                                         let name = n.getAttribute('data-cargo-name');
-                                        let have = (shipCargo[name] || 0) >= 100;
-                                        n.textContent = (have ? '✓ ' : '✗ ') + name + ' (100)';
+                                        let needed = requiredUnitsFor(name);
+                                        let have = (shipCargo[name] || 0) >= needed;
+                                        n.textContent = (have ? '✓ ' : '✗ ') + name + ' (' + needed + ')';
                                         if (have) n.style.color = '#66ff66'; else n.style.color = '#fff';
                                     } catch (e) {}
                                 });
@@ -3993,7 +4240,7 @@ class Factory extends PlanetaryStation {
                                         header.className = 'colonize-requirement';
                                         colonizeWrapper.insertBefore(header, checklist);
                                     }
-                                    header.textContent = `Requirement: ${requiredCount} of the following cargo types (100 units each)`;
+                                    header.textContent = `Requirement: ${requiredCount} of the following cargo types (units as listed)`;
                                 } catch (e) {}
                             } catch (e) {}
                         }
@@ -4008,16 +4255,17 @@ class Factory extends PlanetaryStation {
                                 try { alreadyColonized = U.bodies.filter(b => b instanceof Planet && b.civilization && b.civilization.colonized).length; } catch (e) { alreadyColonized = 0; }
                                 let requiredCount = Math.min(4, (alreadyColonized || 0) + 1);
                                 let shipCargo = ship && ship.cargo ? ship.cargo : {};
-                                let provided = required.filter(n => (shipCargo[n] || 0) >= 100);
+                                let provided = required.filter(n => (shipCargo[n] || 0) >= requiredUnitsFor(n));
                                 if (provided.length < requiredCount) {
-                                    setPanelMessage(`Colonization requires ${requiredCount} distinct cargo types with 100 units each from: ${required.join(', ')}`);
+                                    setPanelMessage(`Colonization requires ${requiredCount} distinct cargo types meeting the listed unit amounts from: ${required.join(', ')}`);
                                     updateColonizeChecklist();
                                     return;
                                 }
 
-                                // Consume 100 units from the first N provided distinct items
+                                // Consume the required units from the first N provided distinct items
                                 provided.slice(0, requiredCount).forEach(n => {
-                                    try { ship.cargo[n] = (ship.cargo[n] || 0) - 100; if (ship.cargo[n] <= 0) delete ship.cargo[n]; } catch (e) {}
+                                    let need = requiredUnitsFor(n);
+                                    try { ship.cargo[n] = (ship.cargo[n] || 0) - need; if (ship.cargo[n] <= 0) delete ship.cargo[n]; } catch (e) {}
                                 });
 
                                 // Set planet name if provided and not empty
@@ -4038,6 +4286,8 @@ class Factory extends PlanetaryStation {
                                 try { if (typeof U !== 'undefined' && U.saveState) U.saveState(); } catch (e) {}
 
                                 setPanelMessage('Planet colonized! It is now friendly and offers half-price to you.');
+                                // Scoring: colonization bonus
+                                try { if (window.Score) Score.add(1000, 'colonize'); } catch (e) {}
                                 // Refresh the panel to reflect price and relationship changes
                                 panel.remove();
                                 window.createPlanetaryTradePanel(planet, ship);
@@ -4369,6 +4619,8 @@ class Factory extends PlanetaryStation {
                                                     try { rowEl.remove(); } catch (e) {}
                                                     // Update credits
                                                     let ci = panel.querySelector('.credits-indicator'); if (ci) ci.textContent = `Ship credits: ${ship && ship.credits ? ship.credits : 0} cr`;
+                                                    // Scoring: selling a load of cargo
+                                                    try { if (window.Score) Score.add(3, 'sell'); } catch (e) {}
                                                 }
                                             });
                                             rowEl.appendChild(sellBtn);
@@ -4524,6 +4776,8 @@ class Factory extends PlanetaryStation {
                                 G.showMessage('Sold ' + units + ' ' + pe.name + ' for ' + total + ' credits');
                                 panel.remove();
                                 window.createPlanetaryTradePanel(planet, ship);
+                                // Scoring: selling a load of cargo
+                                try { if (window.Score) Score.add(3, 'sell'); } catch (e) {}
                             }
                         });
                         row.appendChild(sellBtn);
@@ -4749,8 +5003,8 @@ class OrbitalStation {
         if (window.createTradingPanel) {
             window.createTradingPanel(title, playerResources, playerCredits, this.resourcesPerCredit, tradeValue, repairCost, canRepair, {
                 // Provide a hook for additional buttons in the trading panel UI
-                extraButtons: [{
-                        label: 'Mod Bay',
+        extraButtons: [{
+            label: '[M] Mod Bay',
                         onClick: () => {
                             try {
                                 // Mark the station as pending (fallback) and dispatch a CustomEvent so
@@ -4864,10 +5118,11 @@ class OrbitalStation {
             ]);
         }
 
-        U.remove(U.orbitalStations, this);
+    U.remove(U.orbitalStations, this);
 
         if (source == U.playerShip) {
             this.civilization.updateRelationship(-0.2);
+            try { if (window.Score) Score.add(2, 'defense'); } catch (e) {}
         }
 
         U.dropResources(this.x, this.y, 15);
@@ -4946,6 +5201,9 @@ class ResourceItem extends Item {
     pickUp(ship) {
         ship.civilization.resources = min(200, ship.civilization.resources + 1);
         G.eventHub.emit(3, this);
+
+        // Scoring: 1 point per 50 materials collected
+        try { if (window.Score) Score.onMaterialCollected(1); } catch (e) {}
 
         G.resourceAnimation();
 
@@ -5885,10 +6143,35 @@ class EventHub {
 }
 
 w.down = {};
+
+// Helper: return 1 if the event target or active element is an input field where typing should not trigger game hotkeys
+function isEditableTarget(el) {
+    try {
+        if (!el) return 0;
+        let tag = (el.tagName || '').toLowerCase();
+        if (tag === 'input' || tag === 'textarea') return 1;
+        if (el.isContentEditable) return 1;
+        if (el.closest && el.closest('input, textarea, [contenteditable="1"], [contenteditable=""]')) return 1;
+        return 0;
+    } catch (e) { return 0; }
+}
+
 onkeydown = e => {
+    // If typing into an input/textarea/contenteditable, do not capture keys (except allow ESC to bubble)
+    try {
+        if ((isEditableTarget(e.target) || isEditableTarget(document.activeElement)) && e.keyCode !== 27) {
+            return;
+        }
+    } catch (err) { /* ignore */ }
     w.down[e.keyCode] = 1;
 };
 onkeyup = e => {
+    // If typing into an input/textarea/contenteditable, do not process hotkeys (except allow ESC to bubble)
+    try {
+        if ((isEditableTarget(e.target) || isEditableTarget(document.activeElement)) && e.keyCode !== 27) {
+            return;
+        }
+    } catch (err) { /* ignore */ }
     w.down[e.keyCode] = 0;
     let character = String.fromCharCode(e.keyCode).toLowerCase();
     if (isNaN(character)) {
@@ -5993,6 +6276,44 @@ onkeyup = e => {
     } catch (err) {
         console.log('Access offers (A) error:', err && err.message);
     }
+
+    // Station Trading hotkey: 'M' opens Mod Bay when docked at a station
+    try {
+        if (character === 'm' && U && U.playerShip && U.playerShip.inTradingInterface && U.playerShip.dockedStation) {
+            try { window.__SS_pendingModBayStation = U.playerShip.dockedStation; } catch (e) {}
+            try { window.dispatchEvent(new CustomEvent('solarspark:openModBay', { detail: { station: U.playerShip.dockedStation } })); } catch (e) {}
+            // Fallback: if the openModBay hook is available, call it directly after a short defer
+            try { setTimeout(() => { if (window.__SS_modBayLoaded && typeof window.openModBay === 'function') window.openModBay(U.playerShip.dockedStation); }, 25); } catch (e) {}
+            return;
+        }
+    } catch (err) { /* ignore mod bay hotkey errors */ }
+
+    // Pause handling: 'P' toggles pause; ESC closes menus or opens pause if none
+    try {
+        if (character === 'p') {
+            if (G && typeof G.togglePause === 'function') G.togglePause();
+            return;
+        }
+
+        if (e.keyCode === 27) { // ESC
+            // If any menu panel is open, close the most recent one and do nothing else
+            try {
+                let openPanels = Array.from(document.querySelectorAll('.menu-panel, #menu-panel, #trading-panel, #planetary-trade-panel, #mod-bay-panel, #pause-panel'));
+                if (openPanels.length) {
+                    let last = openPanels[openPanels.length - 1];
+                    if (window.closeMenuPanel) window.closeMenuPanel(last); else try { last.remove(); } catch (e) {}
+                    return;
+                }
+            } catch (e) {}
+
+            // Otherwise, if not in a trading interface, open Pause Screen
+            try {
+                if (!(U && U.playerShip && U.playerShip.inTradingInterface)) {
+                    if (G && typeof G.showPauseScreen === 'function') { G.paused = 1; G.showPauseScreen(); }
+                }
+            } catch (e) {}
+        }
+    } catch (err) { /* ignore pause handling errors */ }
 };
 
 ontouchstart = e => ontouchmove(e, 1);
@@ -6125,10 +6446,12 @@ class Game {
         G.resourceIconAlpha = 1;
         G.healthIconScale = 1;
 
-        G.healthGaugeColor = '#fff';
+    G.healthGaugeColor = '#fff';
         G.lives = 3;
-        // Player lives (displayed in HUD)
-        G.lives = 3;
+
+        // Pause state
+        G.paused = 0;
+        G.pausePanel = null;
     }
 
     proceedToMissionStep(missionStep) {
@@ -6203,9 +6526,10 @@ class Game {
     }
 
     cycle(e) {
+        // Update clock even when paused (UI animations rely on it), but gate gameplay updates
         G.clock += e;
 
-        if (G.started) {
+        if (G.started && !G.paused) {
             if ((G.nextMission -= e) <= 0) {
                 G.promptRandomMission();
             }
@@ -6254,8 +6578,6 @@ class Game {
                 return map;
             }, {'total': 1, '#0f0': 0});
 
-            fillText('Peace: ' + ~~(allyMap['#0f0'] * 100 / allyMap.total) + '%', 185, 140);
-
             G.renderGauge(100, 50, U.playerShip.health, (U.playerShip.health < 0.25 || G.clock - U.playerShip.lastDamage < 0.2) ? '#f00' : G.healthGaugeColor, () => {
                 scale(0.5 * G.healthIconScale, 0.5 * G.healthIconScale);
                 beginPath();
@@ -6281,6 +6603,14 @@ class Game {
                 R.font = '10pt ' + monoFont;
                 R.textAlign = 'left';
 
+                // Establish consistent vertical spacing for right-side labels
+                let baseX = 360;
+                let y1 = 60;  // Shields:Hull
+                let y2 = 80;  // Mod Lv
+                let y3 = 100; // CR
+                let y4 = 120; // Score
+                let y5 = 140; // Lives
+
                 // Shield and Hull: show as "<shields> : <hull>" with shields blue and hull white
                 try {
                     // absolute shield points
@@ -6292,13 +6622,13 @@ class Game {
 
                     // Draw shields in blue
                     fs('cyan');
-                    fillText(String(shieldCurrentPoints), 360, 60);
+                    fillText(String(shieldCurrentPoints), baseX, y1);
                     // Colon separator (small, white)
                     fs('#fff');
-                    fillText(':', 395, 60);
+                    fillText(':', baseX + 35, y1);
                     // Hull in white
                     fs('#fff');
-                    fillText(String(hullCurrentPoints), 405, 60);
+                    fillText(String(hullCurrentPoints), baseX + 45, y1);
                 } catch (e) { /* ignore shield/hull label errors */ }
 
                 // Materials bar: show highest mod upgrade level the player has
@@ -6311,8 +6641,29 @@ class Game {
                         });
                     }
                     fs('#fff');
-                    fillText('Mod Lv: ' + String(highest), 360, 95);
+                    fillText('Mod Lv: ' + String(highest), baseX, y2);
                 } catch (e) { /* ignore mod label errors */ }
+
+                // Credits: show as CR: <num>
+                try {
+                    let credits = (U.playerShip && typeof U.playerShip.credits === 'number') ? U.playerShip.credits : ((U.playerShip && U.playerShip.credits) ? U.playerShip.credits : 0);
+                    fs('#fff');
+                    fillText('CR: ' + String(credits), baseX, y3);
+                } catch (e) { /* ignore credits label errors */ }
+
+                // Score: running total
+                try {
+                    let scoreVal = (window.Score && typeof Score.get === 'function') ? Score.get() : 0;
+                    fs('#fff');
+                    fillText('Score: ' + String(scoreVal), baseX, y4);
+                } catch (e) { /* ignore score HUD errors */ }
+
+                // Lives
+                try {
+                    let lives = (typeof G.lives === 'number') ? G.lives : 0;
+                    fs('#fff');
+                    fillText('Lives: ' + String(lives), baseX, y5);
+                } catch (e) { /* ignore lives label errors */ }
             } catch (e) { /* non-fatal HUD overlay error */ }
 
             G.renderGauge(100, 80, U.playerShip.civilization.resources / 200, '#fff', () => {
@@ -6342,14 +6693,7 @@ class Game {
                     beginPath();
                     fr(-8, -6, 12, 12);
                 });
-                // Show credits next to cargo bar
-                try {
-                    R.font = '10pt ' + monoFont;
-                    R.textAlign = 'left';
-                    fs('#fff');
-                    let credits = (U.playerShip && typeof U.playerShip.credits === 'number') ? U.playerShip.credits : ((U.playerShip && U.playerShip.credits) ? U.playerShip.credits : 0);
-                    fillText(String(credits) + ' CR', 360, 115);
-                } catch (e) { /* ignore credits label errors */ }
+                // (Credits label moved to right-side uniform list above)
             } catch (e) { /* ignore cargo HUD errors */ }
 
             // Heat bar (moved down)
@@ -6358,14 +6702,7 @@ class Game {
                 fr(-1, -5, 3, 10);
                 fr(3, -5, 3, 10);
             });
-            // Show lives next to heat bar
-            try {
-                R.font = '10pt ' + monoFont;
-                R.textAlign = 'left';
-                fs('#fff');
-                let lives = (typeof G.lives === 'number') ? G.lives : 0;
-                fillText(String(lives) + ' lives', 360, 145);
-            } catch (e) { /* ignore lives label errors */ }
+            // (Lives label rendered in the right-side uniform list above)
 
             // Draw a vertical divider to show hull/shield are separate from the resource bars
             try {
@@ -6377,6 +6714,14 @@ class Game {
                 lineTo(dividerX, 35 + 150);
                 stroke();
             } catch (e) { /* ignore divider errors */ }
+
+            // Peace line: place underneath the bars near the bottom of the HUD box
+            try {
+                R.font = '10pt ' + monoFont;
+                R.textAlign = 'center';
+                fs('#fff');
+                fillText('Peace: ' + ~~(allyMap['#0f0'] * 100 / allyMap.total) + '%', 185, 170);
+            } catch (e) { /* ignore peace label errors */ }
 
             // Rendering targets
             let targets = [];
@@ -6673,6 +7018,124 @@ class Game {
         // }
     }
 
+    // Toggle pause state and show/hide Pause Screen
+    togglePause() {
+        try {
+            if (!G.started) return;
+            G.paused = !G.paused;
+            if (G.paused) {
+                this.showPauseScreen();
+            } else {
+                this.hidePauseScreen();
+            }
+        } catch (e) { /* ignore */ }
+    }
+
+    hidePauseScreen() {
+        try {
+            let p = G.pausePanel;
+            if (p) {
+                try { if (p.onClose) p.onClose(); } catch (e) {}
+                try { p.remove(); } catch (e) {}
+                G.pausePanel = null;
+            }
+            // Also close any pause-related subpanels that may be open
+            try {
+                let extras = document.querySelectorAll('#pause-cargo, #pause-ship, #pause-colonized, #pause-my-planets');
+                extras.forEach(el => { try { el.remove(); } catch (e) {} });
+            } catch (e) { /* ignore */ }
+        } catch (e) { /* ignore */ }
+    }
+
+    showPauseScreen() {
+        try {
+            // Close other open panels when pausing to avoid conflicts
+            try {
+                let openPanels = document.querySelectorAll('.menu-panel, #menu-panel, #trading-panel, #planetary-trade-panel, #mod-bay-panel');
+                openPanels.forEach(el => { try { el.remove(); } catch (e) {} });
+            } catch (e) {}
+
+            let scoreVal = (window.Score && typeof Score.get === 'function') ? Score.get() : 0;
+            let livesVal = (typeof G.lives === 'number') ? G.lives : 0;
+            let creditsVal = (U && U.playerShip && U.playerShip.credits) ? U.playerShip.credits : 0;
+
+            let colonizedNames = (() => {
+                try {
+                    return (U && U.bodies ? U.bodies : [])
+                        .filter(b => b instanceof Planet && b.civilization && b.civilization.colonized)
+                        .map(p => p.name || 'Unnamed Planet');
+                } catch (e) { return []; }
+            })();
+
+            let sections = [];
+            sections.push({ html: `<div style="text-align:center;font-size:18px;font-weight:bold;color:#ff0;">PAUSED</div>` });
+            sections.push({ rows: [
+                { label: 'Score', value: String(scoreVal) },
+                { label: 'Lives', value: String(livesVal) },
+                { label: 'Credits', value: String(creditsVal) }
+            ]});
+
+            let panel = window.createMenuPanel({
+                id: 'pause-panel',
+                title: 'Pause',
+                sections,
+                noClose: 1,
+                buttons: [
+                    { label: 'Ship', onClick: () => {
+                        try {
+                            let ship = U.playerShip || {};
+                            let upgrades = (ship && ship.upgrades) ? ship.upgrades : {};
+                            // Define component areas and display names
+                            let AREAS = [
+                                { key: 'hull', label: 'Hull' },
+                                { key: 'shield', label: 'Shields' },
+                                { key: 'phasers', label: 'Phasers' },
+                                { key: 'torpedos', label: 'Torpedos' },
+                                { key: 'thermal', label: 'Thermal Vent' },
+                                { key: 'cargo', label: 'Cargo Storage' }
+                            ];
+
+                            let compRows = AREAS.map(a => ({
+                                label: a.label,
+                                value: 'Level ' + String((typeof upgrades[a.key] === 'number') ? upgrades[a.key] : 1)
+                            }));
+
+                            let cargo = ship.cargo || {};
+                            let cargoRows = Object.keys(cargo).length ? Object.keys(cargo).map(n => ({ label: n, value: String(cargo[n]) + ' units' })) : [{label: 'No cargo', value: ''}];
+
+                            let sections = [
+                                { title: 'Components', rows: compRows },
+                                { title: 'Cargo', rows: cargoRows }
+                            ];
+
+                            window.createMenuPanel({ id: 'pause-ship', title: 'Ship', sections, buttons: [], noClose: 0 });
+                        } catch (e) {}
+                    }},
+                    { label: 'My Planets', onClick: () => {
+                        try {
+                            let list = colonizedNames.length ? colonizedNames : ['None'];
+                            let rows = list.map(n => ({ label: n, value: '' }));
+                            window.createMenuPanel({ id: 'pause-my-planets', title: 'My Planets', sections: [{ rows }], buttons: [], noClose: 0 });
+                        } catch (e) {}
+                    }},
+                    { label: 'High Scores', onClick: () => { try { if (window.Score) Score.showHighScoreBoard(); } catch (e) {} }},
+                    { label: 'Resume', onClick: () => {
+                        try {
+                            // Explicitly unpause and close pause UI without relying on toggle semantics
+                            G.paused = 0;
+                            if (typeof G.hidePauseScreen === 'function') G.hidePauseScreen();
+                        } catch (e) { /* ignore */ }
+                    }, autoClose: 1 }
+                ],
+                onClose: () => { try { G.paused = 0; } catch (e) {} }
+            });
+
+            // Make it prominent
+            try { panel.style.minWidth = '480px'; panel.style.maxWidth = '85%'; } catch (e) {}
+            G.pausePanel = panel;
+        } catch (e) { /* ignore */ }
+    }
+
     mobileArrow() {
         beginPath();
         moveTo(80 / 2, 0);
@@ -6804,7 +7267,10 @@ class Game {
         try { if (typeof U !== 'undefined' && typeof U.saveState === 'function') U.saveState(); } catch (e) {}
 
         // Also apply the standard relationship delta from mission outcome
-        missionStep.civilization.updateRelationship(success ? 0.5 : -0.2);
+    missionStep.civilization.updateRelationship(success ? 0.5 : -0.2);
+
+    // Scoring: award points for successful missions
+    try { if (success && window.Score) Score.add(20, 'mission'); } catch (e) {}
 
         G.showPrompt('Mission ' + (success ? 'SUCCESS' : 'FAILED') + '. ' + missionStep.civilization.center.name + ' will remember that.', [{
             'label': dismiss,
@@ -6816,6 +7282,9 @@ class Game {
         if (G.started || !G.startable) {
             return;
         }
+
+        // Reset score at the start of a new game, not during game over/recap
+        try { if (window.Score) Score.reset(); } catch (e) {}
 
         U.createPlayerShip();
 
@@ -6924,6 +7393,8 @@ class Game {
                 alliesMade + ' species have become your allies'
             ];
             G.startable = 1;
+            // After title appears, prompt for high score if applicable
+            try { if (window.Score && typeof Score.showHighScorePromptIfNeeded === 'function') setTimeout(() => Score.showHighScorePromptIfNeeded(), 200); } catch (e) {}
         }, 4000);
     }
 
@@ -6949,8 +7420,9 @@ class Game {
                 try { console.debug('setupNewGame: cleared persistent save'); } catch (e) {}
             }
         } catch (e) { /* ignore */ }
-        // Reset lives for a fresh new game
-        try { G.lives = 3; } catch (e) {}
+    // Reset lives for a fresh new game
+    try { G.lives = 3; } catch (e) {}
+        // Do not reset score here; we reset in start() so the high score prompt can capture the final score
     }
 
     currentPromptText() {
@@ -7009,13 +7481,40 @@ onload = () => {
     };
     frame();
 
-    // Click handling: map canvas clicks to world coordinates and check for planet offer icons
+    // Click handling: first check prompt option boxes for touch/click selection, then map to world coords for planet clicks
     let canvas = document.querySelector('canvas');
-    canvas.addEventListener('click', (ev) => {
+    function handleCanvasPointer(ev) {
         try {
             let rect = canvas.getBoundingClientRect();
             let x = (ev.clientX - rect.left) / rect.width;
             let y = (ev.clientY - rect.top) / rect.height;
+
+            // 1) Prompt option hit test (for touch screens): if prompt is visible and fully typed, allow clicking boxes
+            try {
+                let hasPrompt = typeof G !== 'undefined' && G && typeof G.promptText === 'function' && G.promptText();
+                let opts = (G && G.promptOptions) || [];
+                if (hasPrompt && opts.length) {
+                    let full = (G.currentPromptText && (G.currentPromptText().length >= (G.promptText() || '').length));
+                    if (full && !G.selectedPromptOption) {
+                        let screenX = x * 1000;
+                        let screenY = y * CANVAS_HEIGHT;
+                        // Match the same transform used in render: prompt area anchored at bottom
+                        let promptTop = CANVAS_HEIGHT - (isTouch ? 400 : 200);
+                        let centerY = promptTop + 100;
+                        for (let i = 0; i < opts.length; i++) {
+                            let centerX = (i + 1) * (1000 / (opts.length + 1));
+                            let x0 = centerX - 150 / 2;
+                            let y0 = centerY - 30 / 2;
+                            let x1 = x0 + 150;
+                            let y1 = y0 + 30;
+                            if (screenX >= x0 && screenX <= x1 && screenY >= y0 && screenY <= y1) {
+                                try { if (typeof G.selectPromptOption === 'function') G.selectPromptOption(i); } catch (e) {}
+                                return; // consumed by prompt selection; do not propagate to planet click
+                            }
+                        }
+                    }
+                }
+            } catch (e) { /* ignore prompt hit-test errors */ }
 
             // Convert to world coordinates
             let worldX = (x * 1000 - 1000 / 2) / V.zoomScale + V.x;
@@ -7039,7 +7538,19 @@ onload = () => {
                 }
             }
         } catch (e) { /* ignore click errors */ }
-    });
+    }
+    canvas.addEventListener('click', handleCanvasPointer);
+    // Also support touchstart for more responsive touch interactions
+    try { canvas.addEventListener('touchstart', (te) => {
+        try {
+            if (te && te.touches && te.touches[0]) {
+                let t = te.touches[0];
+                // Synthesize a minimal event-like object for handler
+                handleCanvasPointer({ clientX: t.clientX, clientY: t.clientY, preventDefault: () => {}, stopPropagation: () => {} });
+                te.preventDefault();
+            }
+        } catch (e) { /* ignore */ }
+    }, { passive: 0 }); } catch (e) { /* ignore */ }
 };
 
 

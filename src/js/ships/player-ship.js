@@ -145,21 +145,27 @@ class PlayerShip extends Ship {
     }
 
     explode(projectile) {
-        super.explode(projectile);
-        // Decrement player lives and check for game over. If lives are exhausted, trigger game over instead of respawn.
+        // Guard against multiple decrements or re-entrant explosions in the same death
+        if (this._exploding) return;
+        this._exploding = true;
+
+        // Decrement player lives first so HUD reflects the change immediately
         try {
             if (typeof G !== 'undefined') {
-                if (typeof G.lives !== 'number') G.lives = 3;
-                G.lives = Math.max(0, G.lives - 1);
-                try { console.debug && console.debug('Player exploded - lives remaining', G.lives); } catch (e) {}
-                if (G.lives <= 0) {
-                    try { if (typeof G.gameOver === 'function') G.gameOver(); } catch (e) {}
-                    // Do not continue with respawn flow
-                    if (this.thrustSound) { this.thrustSound.pause(); }
-                    return;
-                }
+                try { if (!Number.isFinite(G.lives)) G.lives = 0; } catch (e) { G.lives = (G.lives || 0); }
+                G.lives = Math.max(0, (G.lives | 0) - 1);
             }
         } catch (e) { /* ignore lives handling errors */ }
+
+        super.explode(projectile);
+
+        try { console.debug && console.debug('Player exploded - lives remaining', G.lives); } catch (e) {}
+        if (typeof G !== 'undefined' && G.lives <= 0) {
+            try { if (typeof G.gameOver === 'function') G.gameOver(); } catch (e) {}
+            // Do not continue with respawn flow
+            if (this.thrustSound) { this.thrustSound.pause(); }
+            return;
+        }
         // Respawn flow: preserve upgrades/baseStats but reset credits and cargo.
         setTimeout(() => {
             try {

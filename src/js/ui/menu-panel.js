@@ -104,10 +104,12 @@
         const existing = document.getElementById(options.id || 'menu-panel');
         if (existing) existing.remove();
 
-        const panel = document.createElement('div');
+    const panel = document.createElement('div');
         panel.id = options.id || 'menu-panel';
         // Also add a class so CSS can target it regardless of id
         try { panel.classList.add('menu-panel'); } catch (e) {}
+    // Expose onClose on the panel element so callers can close programmatically
+    try { panel.onClose = options.onClose || null; } catch (e) {}
 
         const titleHtml = `<h2>${options.title || ''}</h2>`;
 
@@ -189,6 +191,15 @@
         } catch (e) { /* ignore */ }
 
         return panel;
+    };
+
+    // Provide a helper to close a panel element and honor its onClose if set
+    window.closeMenuPanel = function(panel) {
+        try {
+            if (!panel) return;
+            try { if (panel.onClose) panel.onClose(); } catch (e) {}
+            try { panel.remove(); } catch (e) {}
+        } catch (e) { /* ignore */ }
     };
 
 })();

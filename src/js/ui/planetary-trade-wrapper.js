@@ -338,17 +338,21 @@
                         const colonizeBtn = document.createElement('button');
                         colonizeBtn.type = 'button';
                         colonizeBtn.textContent = 'Colonize Planet';
-                        colonizeBtn.title = 'Required: 100 units of selected cargo types (see checklist)';
+                        colonizeBtn.title = 'Required: units as listed (see checklist)';
 
                         // Checklist UI
                         const checklist = document.createElement('div');
                         checklist.className = 'colonize-checklist';
                         const reqList = ['Terraform Clay', 'Biofoam Packs', 'CryoPods', 'Quantum Grain'];
+                        // Per-item unit requirements: Terraform Clay needs only 50, others 100
+                        function requiredUnitsFor(name) {
+                            return name === 'Terraform Clay' ? 50 : 100;
+                        }
                         reqList.forEach(name => {
                             const item = document.createElement('div');
                             item.className = 'colonize-check-item';
                             item.setAttribute('data-cargo-name', name);
-                            item.textContent = `✗ ${name} (100)`;
+                            item.textContent = `✗ ${name} (${requiredUnitsFor(name)})`;
                             checklist.appendChild(item);
                         });
 
@@ -364,8 +368,9 @@
                                 nodes.forEach(n => {
                                     try {
                                         const name = n.getAttribute('data-cargo-name');
-                                        const have = (shipCargo[name] || 0) >= 100;
-                                        n.textContent = (have ? '✓ ' : '✗ ') + name + ' (100)';
+                                        const needed = requiredUnitsFor(name);
+                                        const have = (shipCargo[name] || 0) >= needed;
+                                        n.textContent = (have ? '✓ ' : '✗ ') + name + ' (' + needed + ')';
                                         if (have) n.style.color = '#66ff66'; else n.style.color = '#fff';
                                     } catch (e) {}
                                 });
@@ -378,7 +383,7 @@
                                         header.className = 'colonize-requirement';
                                         colonizeWrapper.insertBefore(header, checklist);
                                     }
-                                    header.textContent = `Requirement: ${requiredCount} of the following cargo types (100 units each)`;
+                                    header.textContent = `Requirement: ${requiredCount} of the following cargo types (units as listed)`;
                                 } catch (e) {}
                             } catch (e) {}
                         }
@@ -393,16 +398,17 @@
                                 try { alreadyColonized = U.bodies.filter(b => b instanceof Planet && b.civilization && b.civilization.colonized).length; } catch (e) { alreadyColonized = 0; }
                                 const requiredCount = Math.min(4, (alreadyColonized || 0) + 1);
                                 const shipCargo = ship && ship.cargo ? ship.cargo : {};
-                                const provided = required.filter(n => (shipCargo[n] || 0) >= 100);
+                                const provided = required.filter(n => (shipCargo[n] || 0) >= requiredUnitsFor(n));
                                 if (provided.length < requiredCount) {
-                                    setPanelMessage(`Colonization requires ${requiredCount} distinct cargo types with 100 units each from: ${required.join(', ')}`);
+                                    setPanelMessage(`Colonization requires ${requiredCount} distinct cargo types meeting the listed unit amounts from: ${required.join(', ')}`);
                                     updateColonizeChecklist();
                                     return;
                                 }
 
-                                // Consume 100 units from the first N provided distinct items
+                                // Consume the required units from the first N provided distinct items
                                 provided.slice(0, requiredCount).forEach(n => {
-                                    try { ship.cargo[n] = (ship.cargo[n] || 0) - 100; if (ship.cargo[n] <= 0) delete ship.cargo[n]; } catch (e) {}
+                                    const need = requiredUnitsFor(n);
+                                    try { ship.cargo[n] = (ship.cargo[n] || 0) - need; if (ship.cargo[n] <= 0) delete ship.cargo[n]; } catch (e) {}
                                 });
 
                                 // Set planet name if provided and not empty
@@ -423,6 +429,8 @@
                                 try { if (typeof U !== 'undefined' && U.saveState) U.saveState(); } catch (e) {}
 
                                 setPanelMessage('Planet colonized! It is now friendly and offers half-price to you.');
+                                // Scoring: colonization bonus
+                                try { if (window.Score) Score.add(1000, 'colonize'); } catch (e) {}
                                 // Refresh the panel to reflect price and relationship changes
                                 panel.remove();
                                 window.createPlanetaryTradePanel(planet, ship);
@@ -754,6 +762,8 @@
                                                     try { rowEl.remove(); } catch (e) {}
                                                     // Update credits
                                                     const ci = panel.querySelector('.credits-indicator'); if (ci) ci.textContent = `Ship credits: ${ship && ship.credits ? ship.credits : 0} cr`;
+                                                    // Scoring: selling a load of cargo
+                                                    try { if (window.Score) Score.add(3, 'sell'); } catch (e) {}
                                                 }
                                             });
                                             rowEl.appendChild(sellBtn);
@@ -909,6 +919,8 @@
                                 G.showMessage('Sold ' + units + ' ' + pe.name + ' for ' + total + ' credits');
                                 panel.remove();
                                 window.createPlanetaryTradePanel(planet, ship);
+                                // Scoring: selling a load of cargo
+                                try { if (window.Score) Score.add(3, 'sell'); } catch (e) {}
                             }
                         });
                         row.appendChild(sellBtn);

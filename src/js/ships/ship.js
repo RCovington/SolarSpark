@@ -197,6 +197,8 @@ class Ship {
     }
 
     explode() {
+        if (this._exploding) return;
+        this._exploding = true;
         this.health = 0;
 
         for (let i = 0 ; i < 100 ; i++) {
@@ -225,8 +227,8 @@ class Ship {
             if (!shouldDropCargo && U.pirates && U.pirates.indexOf(this) >= 0) shouldDropCargo = true;
         } catch (e) {}
 
-        U.remove(U.ships, this);
-        U.remove(U.pirates, this);
+    U.remove(U.ships, this);
+    U.remove(U.pirates, this);
 
         if (V.isVisible(this)) {
             explosionSound();
@@ -235,7 +237,7 @@ class Ship {
         // Drop raw resources
         U.dropResources(this.x, this.y, 10);
 
-        // If this ship qualifies, perform drop checks: 1/3 chance to drop cargo, 1/3 chance to drop credits
+    // If this ship qualifies, perform drop checks: 1/3 chance to drop cargo, 1/3 chance to drop credits
         try {
             // Drop raw resources and possible cargo/credits only if the destroyed ship is near the player's ship.
             // This avoids cluttering the world with loot from distant fights the player cannot reach.
@@ -349,5 +351,6 @@ class Ship {
         } catch (e) {
             // ignore any unexpected errors during explosion handling
         }
+        // Mark explosion handling complete (for GC); keep flag set to avoid re-entry
     }
 

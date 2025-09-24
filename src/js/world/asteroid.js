@@ -109,6 +109,7 @@ class Asteroid extends Body {
         }
 
         if ((this.health -= amount) <= 0) {
+            try { if (projectile && projectile.owner === U.playerShip && window.Score) Score.add(1, 'asteroid'); } catch (e) {}
             this.explode();
         }
     }

@@ -174,6 +174,11 @@ class AIShip extends Ship {
 
         if (projectile.owner === U.playerShip) {
             this.civilization.updateRelationship(RELATIONSHIP_UPDATE_DESTROY_SHIP);
+            try {
+                const isEnemy = (this.civilization && typeof this.civilization.relationshipType === 'function' && this.civilization.relationshipType() === RELATIONSHIP_ENEMY);
+                const isPirate = (U.pirates && U.pirates.indexOf(this) >= 0);
+                if (window.Score && (isEnemy || isPirate)) Score.add(5, 'enemy-ship');
+            } catch (e) {}
         }
     }
 

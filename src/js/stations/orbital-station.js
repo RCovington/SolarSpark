@@ -183,8 +183,8 @@ class OrbitalStation {
         if (window.createTradingPanel) {
             window.createTradingPanel(title, playerResources, playerCredits, this.resourcesPerCredit, tradeValue, repairCost, canRepair, {
                 // Provide a hook for additional buttons in the trading panel UI
-                extraButtons: [{
-                        label: nomangle('Mod Bay'),
+        extraButtons: [{
+            label: '[M] Mod Bay',
                         onClick: () => {
                             try {
                                 // Mark the station as pending (fallback) and dispatch a CustomEvent so
@@ -298,10 +298,11 @@ class OrbitalStation {
             ]);
         }
 
-        U.remove(U.orbitalStations, this);
+    U.remove(U.orbitalStations, this);
 
         if (source == U.playerShip) {
             this.civilization.updateRelationship(RELATIONSHIP_UPDATE_DESTROY_STATION);
+            try { if (window.Score) Score.add(2, 'defense'); } catch (e) {}
         }
 
         U.dropResources(this.x, this.y, 15);

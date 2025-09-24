@@ -41,9 +41,11 @@ class Game {
         G.resourceIconAlpha = 1;
         G.healthIconScale = 1;
 
-        G.healthGaugeColor = '#fff';
-        // Player lives (displayed in HUD)
-        G.lives = 3;
+    G.healthGaugeColor = '#fff';
+
+        // Pause state
+        G.paused = false;
+        G.pausePanel = null;
     }
 
     proceedToMissionStep(missionStep) {
@@ -117,9 +119,10 @@ class Game {
     }
 
     cycle(e) {
+        // Update clock even when paused (UI animations rely on it), but gate gameplay updates
         G.clock += e;
 
-        if (G.started) {
+        if (G.started && !G.paused) {
             if ((G.nextMission -= e) <= 0) {
                 G.promptRandomMission();
             }
@@ -168,8 +171,6 @@ class Game {
                 return map;
             }, {'total': 1, RELATIONSHIP_ALLY: 0});
 
-            fillText(nomangle('Peace: ') + ~~(allyMap[RELATIONSHIP_ALLY] * 100 / allyMap.total) + '%', 185, 140);
-
             G.renderGauge(100, 50, U.playerShip.health, (U.playerShip.health < 0.25 || G.clock - U.playerShip.lastDamage < 0.2) ? '#f00' : G.healthGaugeColor, () => {
                 scale(0.5 * G.healthIconScale, 0.5 * G.healthIconScale);
                 beginPath();
@@ -195,6 +196,14 @@ class Game {
                 R.font = '10pt ' + monoFont;
                 R.textAlign = nomangle('left');
 
+                // Establish consistent vertical spacing for right-side labels
+                const baseX = 360;
+                const y1 = 60;  // Shields:Hull
+                const y2 = 80;  // Mod Lv
+                const y3 = 100; // CR
+                const y4 = 120; // Score
+                const y5 = 140; // Lives
+
                 // Shield and Hull: show as "<shields> : <hull>" with shields blue and hull white
                 try {
                     // absolute shield points
@@ -206,13 +215,13 @@ class Game {
 
                     // Draw shields in blue
                     fs('cyan');
-                    fillText(String(shieldCurrentPoints), 360, 60);
+                    fillText(String(shieldCurrentPoints), baseX, y1);
                     // Colon separator (small, white)
                     fs('#fff');
-                    fillText(':', 395, 60);
+                    fillText(':', baseX + 35, y1);
                     // Hull in white
                     fs('#fff');
-                    fillText(String(hullCurrentPoints), 405, 60);
+                    fillText(String(hullCurrentPoints), baseX + 45, y1);
                 } catch (e) { /* ignore shield/hull label errors */ }
 
                 // Materials bar: show highest mod upgrade level the player has
@@ -225,8 +234,29 @@ class Game {
                         });
                     }
                     fs('#fff');
-                    fillText('Mod Lv: ' + String(highest), 360, 95);
+                    fillText('Mod Lv: ' + String(highest), baseX, y2);
                 } catch (e) { /* ignore mod label errors */ }
+
+                // Credits: show as CR: <num>
+                try {
+                    const credits = (U.playerShip && typeof U.playerShip.credits === 'number') ? U.playerShip.credits : ((U.playerShip && U.playerShip.credits) ? U.playerShip.credits : 0);
+                    fs('#fff');
+                    fillText('CR: ' + String(credits), baseX, y3);
+                } catch (e) { /* ignore credits label errors */ }
+
+                // Score: running total
+                try {
+                    const scoreVal = (window.Score && typeof Score.get === 'function') ? Score.get() : 0;
+                    fs('#fff');
+                    fillText('Score: ' + String(scoreVal), baseX, y4);
+                } catch (e) { /* ignore score HUD errors */ }
+
+                // Lives
+                try {
+                    const lives = (typeof G.lives === 'number') ? G.lives : 0;
+                    fs('#fff');
+                    fillText('Lives: ' + String(lives), baseX, y5);
+                } catch (e) { /* ignore lives label errors */ }
             } catch (e) { /* non-fatal HUD overlay error */ }
 
             G.renderGauge(100, 80, U.playerShip.civilization.resources / PLANET_MAX_RESOURCES, '#fff', () => {
@@ -256,14 +286,7 @@ class Game {
                     beginPath();
                     fr(-8, -6, 12, 12);
                 });
-                // Show credits next to cargo bar
-                try {
-                    R.font = '10pt ' + monoFont;
-                    R.textAlign = nomangle('left');
-                    fs('#fff');
-                    const credits = (U.playerShip && typeof U.playerShip.credits === 'number') ? U.playerShip.credits : ((U.playerShip && U.playerShip.credits) ? U.playerShip.credits : 0);
-                    fillText(String(credits) + ' CR', 360, 115);
-                } catch (e) { /* ignore credits label errors */ }
+                // (Credits label moved to right-side uniform list above)
             } catch (e) { /* ignore cargo HUD errors */ }
 
             // Heat bar (moved down)
@@ -272,14 +295,7 @@ class Game {
                 fr(-1, -5, 3, 10);
                 fr(3, -5, 3, 10);
             });
-            // Show lives next to heat bar
-            try {
-                R.font = '10pt ' + monoFont;
-                R.textAlign = nomangle('left');
-                fs('#fff');
-                const lives = (typeof G.lives === 'number') ? G.lives : 0;
-                fillText(String(lives) + ' lives', 360, 145);
-            } catch (e) { /* ignore lives label errors */ }
+            // (Lives label rendered in the right-side uniform list above)
 
             // Draw a vertical divider to show hull/shield are separate from the resource bars
             try {
@@ -291,6 +307,14 @@ class Game {
                 lineTo(dividerX, 35 + 150);
                 stroke();
             } catch (e) { /* ignore divider errors */ }
+
+            // Peace line: place underneath the bars near the bottom of the HUD box
+            try {
+                R.font = '10pt ' + monoFont;
+                R.textAlign = nomangle('center');
+                fs('#fff');
+                fillText(nomangle('Peace: ') + ~~(allyMap[RELATIONSHIP_ALLY] * 100 / allyMap.total) + '%', 185, 170);
+            } catch (e) { /* ignore peace label errors */ }
 
             // Rendering targets
             let targets = [];
@@ -587,6 +611,124 @@ class Game {
         // }
     }
 
+    // Toggle pause state and show/hide Pause Screen
+    togglePause() {
+        try {
+            if (!G.started) return;
+            G.paused = !G.paused;
+            if (G.paused) {
+                this.showPauseScreen();
+            } else {
+                this.hidePauseScreen();
+            }
+        } catch (e) { /* ignore */ }
+    }
+
+    hidePauseScreen() {
+        try {
+            const p = G.pausePanel;
+            if (p) {
+                try { if (p.onClose) p.onClose(); } catch (e) {}
+                try { p.remove(); } catch (e) {}
+                G.pausePanel = null;
+            }
+            // Also close any pause-related subpanels that may be open
+            try {
+                const extras = document.querySelectorAll('#pause-cargo, #pause-ship, #pause-colonized, #pause-my-planets');
+                extras.forEach(el => { try { el.remove(); } catch (e) {} });
+            } catch (e) { /* ignore */ }
+        } catch (e) { /* ignore */ }
+    }
+
+    showPauseScreen() {
+        try {
+            // Close other open panels when pausing to avoid conflicts
+            try {
+                const openPanels = document.querySelectorAll('.menu-panel, #menu-panel, #trading-panel, #planetary-trade-panel, #mod-bay-panel');
+                openPanels.forEach(el => { try { el.remove(); } catch (e) {} });
+            } catch (e) {}
+
+            const scoreVal = (window.Score && typeof Score.get === 'function') ? Score.get() : 0;
+            const livesVal = (typeof G.lives === 'number') ? G.lives : 0;
+            const creditsVal = (U && U.playerShip && U.playerShip.credits) ? U.playerShip.credits : 0;
+
+            const colonizedNames = (() => {
+                try {
+                    return (U && U.bodies ? U.bodies : [])
+                        .filter(b => b instanceof Planet && b.civilization && b.civilization.colonized)
+                        .map(p => p.name || 'Unnamed Planet');
+                } catch (e) { return []; }
+            })();
+
+            const sections = [];
+            sections.push({ html: `<div style="text-align:center;font-size:18px;font-weight:bold;color:#ff0;">PAUSED</div>` });
+            sections.push({ rows: [
+                { label: 'Score', value: String(scoreVal) },
+                { label: 'Lives', value: String(livesVal) },
+                { label: 'Credits', value: String(creditsVal) }
+            ]});
+
+            const panel = window.createMenuPanel({
+                id: 'pause-panel',
+                title: 'Pause',
+                sections,
+                noClose: true,
+                buttons: [
+                    { label: 'Ship', onClick: () => {
+                        try {
+                            const ship = U.playerShip || {};
+                            const upgrades = (ship && ship.upgrades) ? ship.upgrades : {};
+                            // Define component areas and display names
+                            const AREAS = [
+                                { key: 'hull', label: 'Hull' },
+                                { key: 'shield', label: 'Shields' },
+                                { key: 'phasers', label: 'Phasers' },
+                                { key: 'torpedos', label: 'Torpedos' },
+                                { key: 'thermal', label: 'Thermal Vent' },
+                                { key: 'cargo', label: 'Cargo Storage' }
+                            ];
+
+                            const compRows = AREAS.map(a => ({
+                                label: a.label,
+                                value: 'Level ' + String((typeof upgrades[a.key] === 'number') ? upgrades[a.key] : 1)
+                            }));
+
+                            const cargo = ship.cargo || {};
+                            const cargoRows = Object.keys(cargo).length ? Object.keys(cargo).map(n => ({ label: n, value: String(cargo[n]) + ' units' })) : [{label: 'No cargo', value: ''}];
+
+                            const sections = [
+                                { title: 'Components', rows: compRows },
+                                { title: 'Cargo', rows: cargoRows }
+                            ];
+
+                            window.createMenuPanel({ id: 'pause-ship', title: 'Ship', sections, buttons: [], noClose: false });
+                        } catch (e) {}
+                    }},
+                    { label: 'My Planets', onClick: () => {
+                        try {
+                            const list = colonizedNames.length ? colonizedNames : ['None'];
+                            const rows = list.map(n => ({ label: n, value: '' }));
+                            window.createMenuPanel({ id: 'pause-my-planets', title: 'My Planets', sections: [{ rows }], buttons: [], noClose: false });
+                        } catch (e) {}
+                    }},
+                    { label: 'High Scores', onClick: () => { try { if (window.Score) Score.showHighScoreBoard(); } catch (e) {} }},
+                    { label: 'Resume', onClick: () => {
+                        try {
+                            // Explicitly unpause and close pause UI without relying on toggle semantics
+                            G.paused = false;
+                            if (typeof G.hidePauseScreen === 'function') G.hidePauseScreen();
+                        } catch (e) { /* ignore */ }
+                    }, autoClose: true }
+                ],
+                onClose: () => { try { G.paused = false; } catch (e) {} }
+            });
+
+            // Make it prominent
+            try { panel.style.minWidth = '480px'; panel.style.maxWidth = '85%'; } catch (e) {}
+            G.pausePanel = panel;
+        } catch (e) { /* ignore */ }
+    }
+
     mobileArrow() {
         beginPath();
         moveTo(MOBILE_BUTTON_SIZE / 2, 0);
@@ -718,7 +860,10 @@ class Game {
         try { if (typeof U !== 'undefined' && typeof U.saveState === 'function') U.saveState(); } catch (e) {}
 
         // Also apply the standard relationship delta from mission outcome
-        missionStep.civilization.updateRelationship(success ? RELATIONSHIP_UPDATE_MISSION_SUCCESS : RELATIONSHIP_UPDATE_MISSION_FAILED);
+    missionStep.civilization.updateRelationship(success ? RELATIONSHIP_UPDATE_MISSION_SUCCESS : RELATIONSHIP_UPDATE_MISSION_FAILED);
+
+    // Scoring: award points for successful missions
+    try { if (success && window.Score) Score.add(20, 'mission'); } catch (e) {}
 
         G.showPrompt(nomangle('Mission ') + (success ? nomangle('SUCCESS') : nomangle('FAILED')) + '. ' + missionStep.civilization.center.name + nomangle(' will remember that.'), [{
             'label': dismiss,
@@ -730,6 +875,9 @@ class Game {
         if (G.started || !G.startable) {
             return;
         }
+
+        // Reset score at the start of a new game, not during game over/recap
+        try { if (window.Score) Score.reset(); } catch (e) {}
 
         U.createPlayerShip();
 
@@ -794,6 +942,8 @@ class Game {
                 alliesMade + nomangle(' species have become your allies')
             ];
             G.startable = true;
+            // After title appears, prompt for high score if applicable
+            try { if (window.Score && typeof Score.showHighScorePromptIfNeeded === 'function') setTimeout(() => Score.showHighScorePromptIfNeeded(), 200); } catch (e) {}
         }, 4000);
     }
 
@@ -819,8 +969,9 @@ class Game {
                 try { console.debug('setupNewGame: cleared persistent save'); } catch (e) {}
             }
         } catch (e) { /* ignore */ }
-        // Reset lives for a fresh new game
-        try { G.lives = 3; } catch (e) {}
+    // Reset lives for a fresh new game
+    try { G.lives = 3; } catch (e) {}
+        // Do not reset score here; we reset in start() so the high score prompt can capture the final score
     }
 
     currentPromptText() {

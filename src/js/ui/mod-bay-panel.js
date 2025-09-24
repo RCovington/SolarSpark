@@ -219,6 +219,9 @@
                             ship.upgrades[areaKey] = current + 1;
                             applyUpgradesToShip(ship);
 
+                            // Scoring: award points for an upgrade purchase
+                            try { if (window.Score) Score.add(20, 'upgrade'); } catch (e) {}
+
                             // Update credits display
                             try {
                                 const credEl = document.getElementById('mod-bay-credits');

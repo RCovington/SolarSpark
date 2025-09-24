@@ -1,0 +1,40 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"label": "Build SolarSpark",
+			"type": "shell",
+			"command": "node simple-build.js",
+			"isBackground": false,
+			"group": "build"
+		},
+		{
+			"label": "Build SolarSpark",
+			"type": "shell",
+			"command": "node simple-build.js",
+			"isBackground": false,
+			"group": "build"
+		},
+		{
+			"label": "Build SolarSpark",
+			"type": "shell",
+			"command": "node simple-build.js",
+			"isBackground": false,
+			"group": "build"
+		},
+		{
+			"label": "Build SolarSpark",
+			"type": "shell",
+			"command": "node simple-build.js",
+			"isBackground": false,
+			"group": "build"
+		},
+		{
+			"label": "Build SolarSpark",
+			"type": "shell",
+			"command": "node simple-build.js",
+			"isBackground": false,
+			"group": "build"
+		}
+	]
+}

@@ -1,8 +1,33 @@
 w.down = {};
+
+// Helper: return true if the event target or active element is an input field where typing should not trigger game hotkeys
+function isEditableTarget(el) {
+    try {
+        if (!el) return false;
+        const tag = (el.tagName || '').toLowerCase();
+        if (tag === 'input' || tag === 'textarea') return true;
+        if (el.isContentEditable) return true;
+        if (el.closest && el.closest('input, textarea, [contenteditable="true"], [contenteditable=""]')) return true;
+        return false;
+    } catch (e) { return false; }
+}
+
 onkeydown = e => {
+    // If typing into an input/textarea/contenteditable, do not capture keys (except allow ESC to bubble)
+    try {
+        if ((isEditableTarget(e.target) || isEditableTarget(document.activeElement)) && e.keyCode !== 27) {
+            return;
+        }
+    } catch (err) { /* ignore */ }
     w.down[e.keyCode] = true;
 };
 onkeyup = e => {
+    // If typing into an input/textarea/contenteditable, do not process hotkeys (except allow ESC to bubble)
+    try {
+        if ((isEditableTarget(e.target) || isEditableTarget(document.activeElement)) && e.keyCode !== 27) {
+            return;
+        }
+    } catch (err) { /* ignore */ }
     w.down[e.keyCode] = false;
     const character = String.fromCharCode(e.keyCode).toLowerCase();
     if (isNaN(character)) {
@@ -107,4 +132,42 @@ onkeyup = e => {
     } catch (err) {
         console.log('Access offers (A) error:', err && err.message);
     }
+
+    // Station Trading hotkey: 'M' opens Mod Bay when docked at a station
+    try {
+        if (character === 'm' && U && U.playerShip && U.playerShip.inTradingInterface && U.playerShip.dockedStation) {
+            try { window.__SS_pendingModBayStation = U.playerShip.dockedStation; } catch (e) {}
+            try { window.dispatchEvent(new CustomEvent('solarspark:openModBay', { detail: { station: U.playerShip.dockedStation } })); } catch (e) {}
+            // Fallback: if the openModBay hook is available, call it directly after a short defer
+            try { setTimeout(() => { if (window.__SS_modBayLoaded && typeof window.openModBay === 'function') window.openModBay(U.playerShip.dockedStation); }, 25); } catch (e) {}
+            return;
+        }
+    } catch (err) { /* ignore mod bay hotkey errors */ }
+
+    // Pause handling: 'P' toggles pause; ESC closes menus or opens pause if none
+    try {
+        if (character === 'p') {
+            if (G && typeof G.togglePause === 'function') G.togglePause();
+            return;
+        }
+
+        if (e.keyCode === 27) { // ESC
+            // If any menu panel is open, close the most recent one and do nothing else
+            try {
+                const openPanels = Array.from(document.querySelectorAll('.menu-panel, #menu-panel, #trading-panel, #planetary-trade-panel, #mod-bay-panel, #pause-panel'));
+                if (openPanels.length) {
+                    const last = openPanels[openPanels.length - 1];
+                    if (window.closeMenuPanel) window.closeMenuPanel(last); else try { last.remove(); } catch (e) {}
+                    return;
+                }
+            } catch (e) {}
+
+            // Otherwise, if not in a trading interface, open Pause Screen
+            try {
+                if (!(U && U.playerShip && U.playerShip.inTradingInterface)) {
+                    if (G && typeof G.showPauseScreen === 'function') { G.paused = true; G.showPauseScreen(); }
+                }
+            } catch (e) {}
+        }
+    } catch (err) { /* ignore pause handling errors */ }
 };

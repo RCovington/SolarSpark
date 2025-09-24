@@ -70,6 +70,7 @@ class PlanetaryStation {
 
         if (source == U.playerShip) {
             this.planet.civilization.updateRelationship(RELATIONSHIP_UPDATE_DESTROY_STATION);
+            try { if (window.Score) Score.add(2, 'defense'); } catch (e) {}
         }
 
         G.eventHub.emit(EVENT_STATION_DESTROYED, this);
