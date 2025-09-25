@@ -799,10 +799,8 @@ class InstructionsStep extends MissionStep {
 
         U.generateUniverse();
 
-        G.showPrompt('Bring PEACE to the galaxy, or WAR...', [{
-            'label': dismiss,
-            'action': () => this.proceed()
-        }]);
+        // Skip the opening message so the game starts immediately after pressing Enter
+        this.proceed();
 
         G.nextMission = 0;
     }
@@ -2150,26 +2148,10 @@ class Civilization {
     relationshipType() {
         // Colonized civilizations are always allies
         if (this.colonized) return '#0f0';
-        // If temporarily marked as enemy due to recent player aggression, check expiry
+        // If temporarily marked as enemy due to recent player aggression, check if still active
         try {
-            if (this.temporaryEnemyUntil) {
-                if (typeof G !== 'undefined' && G.clock <= this.temporaryEnemyUntil) {
-                    // Still hostile
-                    return '#f00';
-                }
-                // Timer expired — restore prior relationship if we saved one, clear saved state and notify once
-                try {
-                    if (typeof this._previousRelationshipOnTempHostility !== 'undefined') {
-                        this.relationship = this._previousRelationshipOnTempHostility;
-                        try { delete this._previousRelationshipOnTempHostility; } catch (e) { this._previousRelationshipOnTempHostility = undefined; }
-                    }
-                } catch (e) { /* ignore */ }
-                this.temporaryEnemyUntil = null;
-                try {
-                    // Trigger a short revert animation on bodies that use this civilization
-                    this._revertAnimationUntil = G.clock + 0.6; // 0.6s animation
-                } catch (e) { /* ignore */ }
-                try { G.showMessage(this.center.name + ' is no longer hostile'); } catch (e) { /* ignore */ }
+            if (this.temporaryEnemyUntil && typeof G !== 'undefined' && G.clock <= this.temporaryEnemyUntil) {
+                return '#f00';
             }
         } catch (e) { /* ignore */ }
         return this.relationship < 0.5 ? '#f00' : '#0f0';
@@ -2177,6 +2159,28 @@ class Civilization {
 
     relationshipLabel() {
         return this.relationshipType() === '#f00' ? 'enemy' : 'ally';
+    }
+
+    // Friendly display name for messages/panels. Falls back to center.name or constructs a station title.
+    getDisplayName() {
+        try {
+            if (!this.center) return 'Unknown';
+            // If center is an orbital station with a star, build the same title as orbital station's UI
+            if (this.center.star) {
+                let title = (this.center.star && this.center.star.name ? this.center.star.name : 'Unknown') + ' - Station - 1';
+                try {
+                    if (U && U.orbitalStations) {
+                        let siblings = U.orbitalStations.filter(s => s.star === this.center.star);
+                        let index = siblings.indexOf(this.center) + 1 || 1;
+                        title = (this.center.star && this.center.star.name ? this.center.star.name : 'Unknown') + ' - Station - ' + index;
+                    }
+                } catch (e) {}
+                return title;
+            }
+            // If center is a planet-like body with a name, use that
+            if (this.center.name) return this.center.name;
+        } catch (e) { /* ignore */ }
+        return 'Unknown';
     }
 
     updateRelationship(difference) {
@@ -3093,7 +3097,8 @@ class PlanetaryStation {
                 let already = this.planet.civilization.temporaryEnemyUntil && this.planet.civilization.temporaryEnemyUntil > G.clock;
                 if (!already) {
                     this.planet.civilization.temporaryEnemyUntil = G.clock + secs;
-                    G.showMessage(this.planet.civilization.center.name + ' will be hostile for ' + String(secs) + 's');
+                    let disp = (typeof this.planet.civilization.getDisplayName === 'function') ? this.planet.civilization.getDisplayName() : (this.planet.civilization.center && this.planet.civilization.center.name) || 'Unknown';
+                    G.showMessage(disp + ' will be hostile for ' + String(secs) + 's');
                 }
             } catch (e) { /* ignore */ }
 
@@ -3131,7 +3136,8 @@ class PlanetaryStation {
                 let already = this.planet.civilization.temporaryEnemyUntil && this.planet.civilization.temporaryEnemyUntil > G.clock;
                 if (!already) {
                     this.planet.civilization.temporaryEnemyUntil = G.clock + secs;
-                    G.showMessage(this.planet.civilization.center.name + ' will be hostile for ' + String(secs) + 's');
+                    let disp = (typeof this.planet.civilization.getDisplayName === 'function') ? this.planet.civilization.getDisplayName() : (this.planet.civilization.center && this.planet.civilization.center.name) || 'Unknown';
+                    G.showMessage(disp + ' will be hostile for ' + String(secs) + 's');
                 }
             } catch (e) { /* ignore */ }
         }
@@ -3286,6 +3292,37 @@ class Factory extends PlanetaryStation {
         font-weight: bold;
         color: #ffd;
     }
+    /* Highlight numeric/value fields so they pop against the labels. Split number and unit so units stay white. */
+    .menu-panel .info-row span.value, #menu-panel .info-row span.value, #trading-panel .info-row span.value {
+        font-weight: bold;
+        text-shadow: 0 0 4px rgba(255,209,90,0.12);
+        font-size: 15px; /* slightly larger than the base 14px */
+        display:inline-flex; align-items:center; gap:6px;
+    }
+    /* bright numeric color */
+    .menu-panel .info-row span.value .value-num, #menu-panel .info-row span.value .value-num, #trading-panel .info-row span.value .value-num {
+        color: #fff067; /* brighter yellow requested */
+        font-weight: bold;
+    }
+    /* units / suffixes remain white */
+    .menu-panel .info-row span.value .value-unit, #menu-panel .info-row span.value .value-unit, #trading-panel .info-row span.value .value-unit {
+        color: #fff;
+        font-weight: normal;
+        font-size: 12px;
+        opacity: 0.95;
+    }
+    /* Planetary Trade: teal for unit quantity numbers, orange for per-unit price numbers */
+    /* Teal for quantities inside the market-name span */
+    #planetary-trade-panel .market-name .value-num, .menu-panel#planetary-trade-panel .market-name .value-num {
+        color: #2ec4b6; /* teal */
+        font-weight: bold;
+    }
+    /* Orange for per-unit price numeric parts */
+    #planetary-trade-panel .price-el .value-num, #planetary-trade-panel .market-price-placeholder .value-num, #planetary-trade-panel .inv-price-el .value-num,
+    .menu-panel#planetary-trade-panel .price-el .value-num, .menu-panel#planetary-trade-panel .market-price-placeholder .value-num, .menu-panel#planetary-trade-panel .inv-price-el .value-num {
+        color: #ff8c42; /* orange */
+        font-weight: bold;
+    }
  .menu-panel h2, #menu-panel h2, #trading-panel h2 { color: #00ffff; text-align: center; margin: 0 0 12px 0; font-size: 18px; }
  .menu-panel .section, #menu-panel .section, #trading-panel .section { margin-bottom: 12px; padding: 10px; background: rgba(0,0,0,0.3); border-radius: 5px; }
  .menu-panel .section h3, #menu-panel .section h3, #trading-panel .section h3 { color: #ffff00; margin: 0 0 8px 0; font-size: 14px; }
@@ -3338,7 +3375,26 @@ class Factory extends PlanetaryStation {
                     if (sec.title) bodyHtml += `<h3>${sec.title}</h3>`;
                     if (sec.rows && sec.rows.length) {
                         sec.rows.forEach(r => {
-                            bodyHtml += `<div class="info-row"><span>${r.label}</span><span>${r.value}</span></div>`;
+                            // label in left span
+                            // value may include a unit suffix like "123 CR" or "5 units"; try to split automatically
+                            let valueHtml = '';
+                            try {
+                                let v = (typeof r.value === 'number') ? String(r.value) : (r.value || '');
+                                // Match numeric part followed by space and unit (letters, %, / or words)
+                                let m = String(v).match(/^\s*([0-9.,+-]+)\s*(.*)$/);
+                                if (m && m[2]) {
+                                    let num = m[1];
+                                    let unit = m[2];
+                                    valueHtml = `<span class="value-num">${num}</span><span class="value-unit">${unit}</span>`;
+                                } else {
+                                    // fallback: render whole value as numeric span
+                                    valueHtml = `<span class="value-num">${v}</span>`;
+                                }
+                            } catch (e) {
+                                valueHtml = `<span class="value-num">${r.value}</span>`;
+                            }
+
+                            bodyHtml += `<div class="info-row"><span class="label">${r.label}</span><span class="value">${valueHtml}</span></div>`;
                         });
                     }
                     if (sec.extraHtml) bodyHtml += sec.extraHtml;
@@ -3362,8 +3418,13 @@ class Factory extends PlanetaryStation {
                             if (typeof b.onClick === 'function') b.onClick(ev);
                         } catch (e) { console.error(e); }
                         try {
-                            if (b.autoClose === 1) panel.remove();
-                            if (options.onClose) options.onClose();
+                            // Only invoke onClose when the panel is actually being closed.
+                            if (b.autoClose === 1) {
+                                try { if (panel.onClose) panel.onClose(); } catch (e) {}
+                                try { panel.remove(); } catch (e) {}
+                            }
+                            // Do not call the panel-level onClose for ordinary button clicks. That
+                            // caused pause panels to unpause when opening subpanels (e.g. Settings).
                         } catch (e) { console.error('menu-panel post-click error', e); }
                     }, 0);
                 } catch (e) {
@@ -3382,15 +3443,20 @@ class Factory extends PlanetaryStation {
             });
         }
 
-        // Always include a Close button unless explicitly disabled
+        // Always include a Close button unless explicitly disabled or the caller
+        // already provided a Close-labeled button. We also avoid calling the
+        // panel-level onClose for ordinary button clicks (see attachDeferredHandler).
         if (!options.noClose) {
-            let closeBtn = document.createElement('button');
-            closeBtn.textContent = 'Close';
-            closeBtn.addEventListener('click', () => {
-                try { panel.remove(); } catch (e) {}
-                if (options.onClose) options.onClose();
-            });
-            buttonsContainer.appendChild(closeBtn);
+            let alreadyHasClose = (options.buttons || []).some(b => (b && String(b.label || '').toLowerCase() === 'close'));
+            if (!alreadyHasClose) {
+                let closeBtn = document.createElement('button');
+                closeBtn.textContent = 'Close';
+                closeBtn.addEventListener('click', () => {
+                    try { if (panel.onClose) panel.onClose(); } catch (e) {}
+                    try { panel.remove(); } catch (e) {}
+                });
+                buttonsContainer.appendChild(closeBtn);
+            }
         }
 
         panel.innerHTML = titleHtml + bodyHtml;
@@ -3674,25 +3740,19 @@ class Factory extends PlanetaryStation {
             sections.push({ title: '', html: `<div style="text-align:center;font-weight:bold;margin-bottom:8px;">Credits: <span id="mod-bay-credits">${credits}</span></div>` });
 
             // Build rows with inline upgrade placeholders
-            let rows = MOD_AREAS.map(area => {
+            // Build the Available Upgrades section as raw HTML so we can ensure numeric/unit spans for styling
+            let upgradesHtml = '<div class="section">';
+            upgradesHtml += `<h3>${'Available Upgrades'}</h3>`;
+            MOD_AREAS.forEach(area => {
                 let level = ship.upgrades[area.key] || 1;
                 let cost = nextLevelCost(level);
-                // For cargo, include a numeric capacity display element we can update
-                if (area.key === 'cargo') {
-                    return {
-                        label: `${area.label} (Level ${level})`,
-                        value: `<span class="mod-bay-cost" data-area="${area.key}">${cost} cr</span> <span style="margin-left:8px;"><button type="button" class="mod-bay-upgrade-btn" data-area="${area.key}">Upgrade</button></span>`
-                    };
-                }
-
-                return {
-                    label: `${area.label} (Level ${level})`,
-                    // value will be replaced by a span that contains cost and an inline button
-                    value: `<span class="mod-bay-cost" data-area="${area.key}">${cost} cr</span> <span style=\"margin-left:8px;\"><button type=\"button\" class=\"mod-bay-upgrade-btn\" data-area=\"${area.key}\">Upgrade</button></span>`
-                };
+                // Compose an info-row with explicit numeric and unit spans so 'cr' stays white
+                upgradesHtml += `<div class="info-row"><span class="label">${area.label} (Level ${level})</span>`;
+                upgradesHtml += `<span class="value"><span class="mod-bay-cost" data-area="${area.key}"><span class="value-num">${cost}</span><span class="value-unit">cr</span></span> <span style="margin-left:8px;"><button type="button" class="mod-bay-upgrade-btn" data-area="${area.key}">Upgrade</button></span></span>`;
+                upgradesHtml += `</div>`;
             });
-
-            sections.push({ title: 'Available Upgrades', rows });
+            upgradesHtml += '</div>';
+            sections.push({ html: upgradesHtml });
 
             // Create the panel (no separate buttons)
             let panel = window.createMenuPanel({
@@ -3750,7 +3810,12 @@ class Factory extends PlanetaryStation {
                                 if (costEl) {
                                     let newLevel = ship.upgrades[areaKey] || 1;
                                     let newCost = nextLevelCost(newLevel);
-                                    costEl.textContent = newCost + ' cr';
+                                    // Update only the numeric child so unit span stays intact
+                                    try {
+                                        let numEl = costEl.querySelector('.value-num');
+                                        if (numEl) numEl.textContent = String(newCost);
+                                        else costEl.textContent = newCost + ' cr';
+                                    } catch (e) { costEl.textContent = newCost + ' cr'; }
                                     // Also update the label text
                                     let rowLabel = costEl.closest('.info-row').querySelector('span');
                                     if (rowLabel) rowLabel.textContent = `${MOD_AREAS.find(a=>a.key===areaKey).label} (Level ${newLevel})`;
@@ -4136,7 +4201,10 @@ class Factory extends PlanetaryStation {
         let cargoHtml = '<div class="section">';
     cargoHtml += '<h3>CARGO FOR SALE</h3>';
         planetOfferings.forEach((c, i) => {
-            cargoHtml += `<div class="info-row" data-market-index="${i}"><span>${c.name} (${c.units} units)</span><span>${c.price} cr/unit</span></div>`;
+            // Price shown as: <num> cr/unit where num is highlighted and 'cr/unit' stays white
+            let priceHtml = `<span class="value"><span class="value-num">${c.price}</span><span class="value-unit"> cr/unit</span></span>`;
+            // Render the market-price-placeholder with explicit numeric/unit spans so CSS can target the numeric part immediately
+            cargoHtml += `<div class="info-row" data-market-index="${i}"><span class="market-name">${c.name} (<span class="value-num">${c.units}</span><span class="value-unit"> units</span>)</span><span class="market-price-placeholder"><span class="value-num">${c.price}</span><span class="value-unit"> cr/unit</span></span></div>`;
         });
         cargoHtml += '</div>';
         sections.push({ html: cargoHtml });
@@ -4428,15 +4496,15 @@ class Factory extends PlanetaryStation {
 
                     // Replace the price text with a price element that shows a tooltip on hover
                     try {
-                        let spans = row.querySelectorAll('span');
-                        let priceSpan = spans && spans[1];
+                        let priceSpan = row.querySelector('.market-price-placeholder');
                         if (priceSpan) {
                             let marketItem = planetOfferings[idx];
                             let priceEl = document.createElement('span');
                             priceEl.className = 'price-el';
                             priceEl.style.marginLeft = '8px';
                             priceEl.style.fontWeight = 'bold';
-                            priceEl.textContent = (marketItem && marketItem.price ? marketItem.price : 0) + ' cr/unit';
+                            // Use innerHTML with numeric/unit spans so CSS can target the numeric part
+                            priceEl.innerHTML = `<span class="value-num">${(marketItem && marketItem.price ? marketItem.price : 0)}</span><span class="value-unit"> cr/unit</span>`;
 
                             function formatTooltip(cargoName, price) {
                                 let def = getCargoDefByName(cargoName) || {};
@@ -4630,12 +4698,18 @@ class Factory extends PlanetaryStation {
                                 if (row) {
                                     let marketNow = planet.market && Array.isArray(planet.market) ? planet.market[idx] : marketItem;
                                     // Update the display text (first span) and price element (price-el)
-                                    try {
-                                        let spans = row.querySelectorAll('span');
-                                        if (spans && spans[0]) spans[0].textContent = `${marketNow.name} (${marketNow.units} units)`;
-                                        let priceEl = row.querySelector('.price-el');
-                                        if (priceEl) priceEl.textContent = `${marketNow.price} cr/unit`;
-                                    } catch (e) {}
+                                        try {
+                                            // Update the row's name/units with numeric/unit spans so numbers stay colored
+                                            let nameSpan = row.querySelector('span');
+                                            if (nameSpan) {
+                                                let nameHtml = `${marketNow.name} (<span class="value-num">${marketNow.units}</span><span class="value-unit"> units</span>)`;
+                                                nameSpan.innerHTML = nameHtml;
+                                            }
+                                            let priceEl = row.querySelector('.price-el');
+                                            if (priceEl) {
+                                                priceEl.innerHTML = `<span class="value-num">${marketNow.price}</span><span class="value-unit"> cr/unit</span>`;
+                                            }
+                                        } catch (e) {}
                                 }
 
                                 // Update the inventory section: either update existing row or add one
@@ -4653,18 +4727,22 @@ class Factory extends PlanetaryStation {
                                     if (invRow) {
                                         // Update units text
                                         try {
-                                            invRow.firstChild.textContent = `${marketItem.name} (${(ship.cargo && ship.cargo[marketItem.name]) || 0} units)`;
+                                            // Preserve numeric/unit styling for inventory entries
+                                            let unitsNow = (ship.cargo && ship.cargo[marketItem.name]) || 0;
+                                            if (invRow && invRow.firstChild) {
+                                                invRow.firstChild.innerHTML = `${marketItem.name} (<span class="value-num">${unitsNow}</span><span class="value-unit"> units</span>)`;
+                                            }
                                         } catch (e) {}
                                     } else {
                                         // Add a new inventory row for this cargo (simple append)
-                                        try {
+                                            try {
                                             let price = Math.max(1, Math.floor(3 + (Math.random() * 5)));
                                             let rowEl = document.createElement('div');
                                             rowEl.className = 'info-row';
-                                            rowEl.innerHTML = `<span>${marketItem.name} (${(ship.cargo && ship.cargo[marketItem.name]) || 0} units)</span>`;
+                                            rowEl.innerHTML = `<span>${marketItem.name} (<span class=\"value-num\">${(ship.cargo && ship.cargo[marketItem.name]) || 0}</span><span class=\"value-unit\"> units</span>)</span>`;
                                             let priceEl = document.createElement('span');
                                             priceEl.className = 'inv-price-el';
-                                            priceEl.textContent = `${price} cr/unit`;
+                                            priceEl.innerHTML = `<span class=\"value-num\">${price}</span><span class=\"value-unit\"> cr/unit</span>`;
                                             rowEl.appendChild(priceEl);
                                             let sellBtn = document.createElement('button');
                                             sellBtn.type = 'button';
@@ -5028,7 +5106,8 @@ class OrbitalStation {
                 // Only set and announce if not already in temporary hostile mode
                 if (!already) {
                     this.civilization.temporaryEnemyUntil = G.clock + secs;
-                    G.showMessage(this.civilization.center.name + ' will be hostile for ' + String(secs) + 's');
+                    let disp = (typeof this.civilization.getDisplayName === 'function') ? this.civilization.getDisplayName() : (this.civilization.center && this.civilization.center.name) || 'Unknown';
+                    G.showMessage(disp + ' will be hostile for ' + String(secs) + 's');
                 }
             } catch (e) { /* ignore */ }
 
@@ -5226,7 +5305,8 @@ class OrbitalStation {
                 let already = this.civilization.temporaryEnemyUntil && this.civilization.temporaryEnemyUntil > G.clock;
                 if (!already) {
                     this.civilization.temporaryEnemyUntil = G.clock + secs;
-                    G.showMessage(this.civilization.center.name + ' will be hostile for ' + String(secs) + 's');
+                    let disp = (typeof this.civilization.getDisplayName === 'function') ? this.civilization.getDisplayName() : (this.civilization.center && this.civilization.center.name) || 'Unknown';
+                    G.showMessage(disp + ' will be hostile for ' + String(secs) + 's');
                 }
             } catch (e) { /* ignore */ }
         }
@@ -6207,10 +6287,32 @@ soundPool = (settings, poolSize = 1) => {
 
     return () => {
         let sound = sounds()[index++ % sounds().length];
+        try {
+            // Apply global volume/mute if present. jsfxr returns an HTMLAudioElement.
+            if (typeof window !== 'undefined') {
+                try { if (typeof window.__SS_volume !== 'undefined') sound.volume = Math.max(0, Math.min(1, Number(window.__SS_volume) || 0)); } catch (e) {}
+                try { if (typeof window.__SS_muted !== 'undefined') sound.muted = !!window.__SS_muted; } catch (e) {}
+            }
+        } catch (e) {}
         sound.play();
         return sound;
     };
 };
+
+// Expose simple setters to control global volume/mute from UI.
+try {
+    if (typeof window !== 'undefined') {
+        window.setMasterVolume = function(v) {
+            try { window.__SS_volume = Math.max(0, Math.min(1, Number(v) || 0)); } catch (e) { window.__SS_volume = 1; }
+            // Note: existing Audio instances won't be retroactively updated here, but
+            // new sounds will respect the updated volume. This is sufficient for the
+            // game's short, per-sound playback model (jsfxr generates one-shot Audio).
+        };
+        window.setMuted = function(m) {
+            try { window.__SS_muted = !!m; } catch (e) { window.__SS_muted = 0; }
+        };
+    }
+} catch (e) {}
 
 let explosionSound = soundPool([3,,0.3346,0.2953,0.4941,0.1205,,-0.2565,,,,,,,,,-0.1093,-0.2344,1,,,,,0.5]),
     shootSound = soundPool([0,,0.1584,0.1384,0.2216,0.63,,-0.2653,,,,,,0.1485,,,,,1,,,0.1888,,0.5], 10),
@@ -6304,7 +6406,17 @@ onkeyup = e => {
                     if (dist(body, U.playerShip) >= body.reachRadius) return 0;
                     try {
                         let defenseless = !(body.stations && body.stations.length);
-                        let isAlly = body.civilization && body.civilization.relationshipType && body.civilization.relationshipType() === '#0f0';
+                        let isAlly = 0;
+                        try {
+                            if (body.civilization) {
+                                // Consider temporary can-dock window as ally
+                                if (body.civilization._canDockUntil && typeof G !== 'undefined' && G.clock <= body.civilization._canDockUntil) {
+                                    isAlly = 1;
+                                } else if (body.civilization.relationshipType && body.civilization.relationshipType() === '#0f0') {
+                                    isAlly = 1;
+                                }
+                            }
+                        } catch (e) { /* ignore */ }
                         return isAlly || defenseless;
                     } catch (e) { return 0; }
                 });
@@ -6612,6 +6724,31 @@ class Game {
         // Update clock even when paused (UI animations rely on it), but gate gameplay updates
         G.clock += e;
 
+        // Check for any civilizations whose temporary hostility expired and restore them deterministically
+        try {
+            if (U && U.bodies) {
+                U.bodies.forEach(body => {
+                    try {
+                        let civ = body.civilization;
+                        if (civ && civ.temporaryEnemyUntil && civ.temporaryEnemyUntil <= G.clock) {
+                            // Restore saved numeric relationship if available
+                            try {
+                                if (typeof civ._previousRelationshipOnTempHostility !== 'undefined') {
+                                    civ.relationship = civ._previousRelationshipOnTempHostility;
+                                    try { delete civ._previousRelationshipOnTempHostility; } catch (e) { civ._previousRelationshipOnTempHostility = undefined; }
+                                }
+                            } catch (e) { /* ignore */ }
+                            civ.temporaryEnemyUntil = null;
+                            civ._revertAnimationUntil = G.clock + 0.6;
+                            // Allow immediate docking for a short window after revert
+                            civ._canDockUntil = G.clock + 0.6;
+                            try { G.showMessage((typeof civ.getDisplayName === 'function') ? civ.getDisplayName() : (civ.center && civ.center.name) || 'Unknown' + ' is no longer hostile'); } catch (e) {}
+                        }
+                    } catch (e) { /* ignore per-body errors */ }
+                });
+            }
+        } catch (e) { /* ignore */ }
+
         if (G.started && !G.paused) {
             if ((G.nextMission -= e) <= 0) {
                 G.promptRandomMission();
@@ -6723,29 +6860,44 @@ class Game {
                             if (v > highest) highest = v;
                         });
                     }
+                    // Draw 'Mod Lv:' label in white and numeric level in bright yellow
                     fs('#fff');
-                    fillText('Mod Lv: ' + String(highest), baseX, y2);
+                    fillText('Mod Lv:', baseX, y2);
+                    let modLabelWidth = R.measureText('Mod Lv:').width;
+                    fs('#fff067');
+                    fillText(String(highest), baseX + modLabelWidth + 6, y2);
                 } catch (e) { /* ignore mod label errors */ }
 
-                // Credits: show as CR: <num>
+                // Credits: show as CR: <num> with numeric part colored
                 try {
                     let credits = (U.playerShip && typeof U.playerShip.credits === 'number') ? U.playerShip.credits : ((U.playerShip && U.playerShip.credits) ? U.playerShip.credits : 0);
+                    // Draw label
                     fs('#fff');
-                    fillText('CR: ' + String(credits), baseX, y3);
+                    fillText('CR:', baseX, y3);
+                    // Draw numeric value in bright yellow slightly offset
+                    let labelWidth = R.measureText('CR:').width;
+                    fs('#fff067');
+                    fillText(String(credits), baseX + labelWidth + 6, y3);
                 } catch (e) { /* ignore credits label errors */ }
 
-                // Score: running total
+                // Score: running total (label white, number bright)
                 try {
                     let scoreVal = (window.Score && typeof Score.get === 'function') ? Score.get() : 0;
                     fs('#fff');
-                    fillText('Score: ' + String(scoreVal), baseX, y4);
+                    fillText('Score:', baseX, y4);
+                    let lw = R.measureText('Score:').width;
+                    fs('#fff067');
+                    fillText(String(scoreVal), baseX + lw + 6, y4);
                 } catch (e) { /* ignore score HUD errors */ }
 
-                // Lives
+                // Lives (label white, numeric bright)
                 try {
                     let lives = (typeof G.lives === 'number') ? G.lives : 0;
                     fs('#fff');
-                    fillText('Lives: ' + String(lives), baseX, y5);
+                    fillText('Lives:', baseX, y5);
+                    let lw2 = R.measureText('Lives:').width;
+                    fs('#fff067');
+                    fillText(String(lives), baseX + lw2 + 6, y5);
                 } catch (e) { /* ignore lives label errors */ }
             } catch (e) { /* non-fatal HUD overlay error */ }
 
@@ -7201,6 +7353,70 @@ class Game {
                             window.createMenuPanel({ id: 'pause-my-planets', title: 'My Planets', sections: [{ rows }], buttons: [], noClose: 0 });
                         } catch (e) {}
                     }},
+                        { label: 'Settings', onClick: () => {
+                            try {
+                                // Load saved settings or defaults
+                                let savedVol = (typeof localStorage !== 'undefined') ? parseFloat(localStorage.getItem('ss_volume') || '1') : 1;
+                                let savedMuted = (typeof localStorage !== 'undefined') ? (localStorage.getItem('ss_muted') === '1') : 0;
+
+                                let sections = [
+                                    { rows: [
+                                        { label: 'Volume', value: '' },
+                                    ]}
+                                ];
+
+                                let panel = window.createMenuPanel({ id: 'pause-settings', title: 'Settings', sections, buttons: [
+                                    { label: 'Close', onClick: () => { try { if (panel && panel.remove) panel.remove(); } catch (e) {} } }
+                                ], noClose: 0 });
+
+                                // Build controls
+                                try {
+                                    let container = document.createElement('div');
+                                    container.style.padding = '6px 8px';
+                                    container.style.display = 'flex';
+                                    container.style.flexDirection = 'column';
+                                    container.style.gap = '8px';
+
+                                    let volRow = document.createElement('div');
+                                    volRow.style.display = 'flex';
+                                    volRow.style.alignItems = 'center';
+                                    let volLabel = document.createElement('div'); volLabel.textContent = 'Volume'; volLabel.style.width = '70px';
+                                    let volInput = document.createElement('input'); volInput.type = 'range'; volInput.min = 0; volInput.max = 1; volInput.step = 0.01; volInput.value = String(savedVol);
+                                    volInput.style.flex = '1';
+                                    let volValue = document.createElement('div'); volValue.textContent = Math.round(savedVol * 100) + '%'; volValue.style.width = '50px'; volValue.style.textAlign = 'right';
+                                    volInput.oninput = () => { volValue.textContent = Math.round(parseFloat(volInput.value) * 100) + '%'; };
+                                    volInput.onchange = () => {
+                                        let v = parseFloat(volInput.value);
+                                        try { window.__SS_volume = v; } catch (e) {}
+                                        try { if (typeof window.setMasterVolume === 'function') window.setMasterVolume(v); } catch (e) {}
+                                        try { if (typeof localStorage !== 'undefined') localStorage.setItem('ss_volume', String(v)); } catch (e) {}
+                                    };
+                                    volRow.appendChild(volLabel); volRow.appendChild(volInput); volRow.appendChild(volValue);
+
+                                    let muteRow = document.createElement('div'); muteRow.style.display = 'flex'; muteRow.style.alignItems = 'center'; muteRow.style.gap = '8px';
+                                    let muteInput = document.createElement('input'); muteInput.type = 'checkbox'; muteInput.checked = !!savedMuted;
+                                    let muteLabel = document.createElement('div'); muteLabel.textContent = 'Mute';
+                                    muteInput.onchange = () => {
+                                        try { window.__SS_muted = !!muteInput.checked; } catch (e) {}
+                                        try { if (typeof window.setMuted === 'function') window.setMuted(!!muteInput.checked); } catch (e) {}
+                                        try { if (typeof localStorage !== 'undefined') localStorage.setItem('ss_muted', muteInput.checked ? '1' : '0'); } catch (e) {}
+                                    };
+                                    muteRow.appendChild(muteInput); muteRow.appendChild(muteLabel);
+
+                                    container.appendChild(volRow);
+                                    container.appendChild(muteRow);
+
+                                    // Insert into panel
+                                    try { panel.appendChild(container); } catch (e) { panel.appendChild(container); }
+
+                                    // Apply initial values to global hooks
+                                    try { window.__SS_volume = savedVol; } catch (e) {}
+                                    try { window.__SS_muted = !!savedMuted; } catch (e) {}
+                                    try { if (typeof window.setMasterVolume === 'function') window.setMasterVolume(savedVol); } catch (e) {}
+                                    try { if (typeof window.setMuted === 'function') window.setMuted(!!savedMuted); } catch (e) {}
+                                } catch (e) { /* ignore control creation errors */ }
+                            } catch (e) { /* ignore */ }
+                        }},
                     { label: 'High Scores', onClick: () => { try { if (window.Score) Score.showHighScoreBoard(); } catch (e) {} }},
                     { label: 'Resume', onClick: () => {
                         try {
@@ -7383,7 +7599,10 @@ class Game {
 
         if (!G.startedOnce) {
             V.zoomScale = V.targetScaleOverride = 1;
-            setTimeout(() => G.proceedToMissionStep(new InstructionsStep()), 100);
+            // Previously the InstructionsStep called U.generateUniverse(); make sure
+            // we still generate the universe when starting the game the first time
+            // even though we skip showing the tutorial prompt.
+            try { if (typeof U !== 'undefined' && typeof U.generateUniverse === 'function') U.generateUniverse(); } catch (e) {}
         }
 
     // Increase mission cadence baseline for less frequent incoming communications
