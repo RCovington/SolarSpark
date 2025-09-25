@@ -216,7 +216,10 @@
         let cargoHtml = '<div class="section">';
     cargoHtml += '<h3>CARGO FOR SALE</h3>';
         planetOfferings.forEach((c, i) => {
-            cargoHtml += `<div class="info-row" data-market-index="${i}"><span>${c.name} (${c.units} units)</span><span>${c.price} cr/unit</span></div>`;
+            // Price shown as: <num> cr/unit where num is highlighted and 'cr/unit' stays white
+            const priceHtml = `<span class="value"><span class="value-num">${c.price}</span><span class="value-unit"> cr/unit</span></span>`;
+            // Render the market-price-placeholder with explicit numeric/unit spans so CSS can target the numeric part immediately
+            cargoHtml += `<div class="info-row" data-market-index="${i}"><span class="market-name">${c.name} (<span class="value-num">${c.units}</span><span class="value-unit"> units</span>)</span><span class="market-price-placeholder"><span class="value-num">${c.price}</span><span class="value-unit"> cr/unit</span></span></div>`;
         });
         cargoHtml += '</div>';
         sections.push({ html: cargoHtml });
@@ -508,15 +511,15 @@
 
                     // Replace the price text with a price element that shows a tooltip on hover
                     try {
-                        const spans = row.querySelectorAll('span');
-                        const priceSpan = spans && spans[1];
+                        const priceSpan = row.querySelector('.market-price-placeholder');
                         if (priceSpan) {
                             const marketItem = planetOfferings[idx];
                             const priceEl = document.createElement('span');
                             priceEl.className = 'price-el';
                             priceEl.style.marginLeft = '8px';
                             priceEl.style.fontWeight = 'bold';
-                            priceEl.textContent = (marketItem && marketItem.price ? marketItem.price : 0) + ' cr/unit';
+                            // Use innerHTML with numeric/unit spans so CSS can target the numeric part
+                            priceEl.innerHTML = `<span class="value-num">${(marketItem && marketItem.price ? marketItem.price : 0)}</span><span class="value-unit"> cr/unit</span>`;
 
                             function formatTooltip(cargoName, price) {
                                 const def = getCargoDefByName(cargoName) || {};
@@ -710,12 +713,18 @@
                                 if (row) {
                                     const marketNow = planet.market && Array.isArray(planet.market) ? planet.market[idx] : marketItem;
                                     // Update the display text (first span) and price element (price-el)
-                                    try {
-                                        const spans = row.querySelectorAll('span');
-                                        if (spans && spans[0]) spans[0].textContent = `${marketNow.name} (${marketNow.units} units)`;
-                                        const priceEl = row.querySelector('.price-el');
-                                        if (priceEl) priceEl.textContent = `${marketNow.price} cr/unit`;
-                                    } catch (e) {}
+                                        try {
+                                            // Update the row's name/units with numeric/unit spans so numbers stay colored
+                                            const nameSpan = row.querySelector('span');
+                                            if (nameSpan) {
+                                                const nameHtml = `${marketNow.name} (<span class="value-num">${marketNow.units}</span><span class="value-unit"> units</span>)`;
+                                                nameSpan.innerHTML = nameHtml;
+                                            }
+                                            const priceEl = row.querySelector('.price-el');
+                                            if (priceEl) {
+                                                priceEl.innerHTML = `<span class="value-num">${marketNow.price}</span><span class="value-unit"> cr/unit</span>`;
+                                            }
+                                        } catch (e) {}
                                 }
 
                                 // Update the inventory section: either update existing row or add one
@@ -733,18 +742,22 @@
                                     if (invRow) {
                                         // Update units text
                                         try {
-                                            invRow.firstChild.textContent = `${marketItem.name} (${(ship.cargo && ship.cargo[marketItem.name]) || 0} units)`;
+                                            // Preserve numeric/unit styling for inventory entries
+                                            const unitsNow = (ship.cargo && ship.cargo[marketItem.name]) || 0;
+                                            if (invRow && invRow.firstChild) {
+                                                invRow.firstChild.innerHTML = `${marketItem.name} (<span class="value-num">${unitsNow}</span><span class="value-unit"> units</span>)`;
+                                            }
                                         } catch (e) {}
                                     } else {
                                         // Add a new inventory row for this cargo (simple append)
-                                        try {
+                                            try {
                                             const price = Math.max(1, Math.floor(3 + (Math.random() * 5)));
                                             const rowEl = document.createElement('div');
                                             rowEl.className = 'info-row';
-                                            rowEl.innerHTML = `<span>${marketItem.name} (${(ship.cargo && ship.cargo[marketItem.name]) || 0} units)</span>`;
+                                            rowEl.innerHTML = `<span>${marketItem.name} (<span class=\"value-num\">${(ship.cargo && ship.cargo[marketItem.name]) || 0}</span><span class=\"value-unit\"> units</span>)</span>`;
                                             const priceEl = document.createElement('span');
                                             priceEl.className = 'inv-price-el';
-                                            priceEl.textContent = `${price} cr/unit`;
+                                            priceEl.innerHTML = `<span class=\"value-num\">${price}</span><span class=\"value-unit\"> cr/unit</span>`;
                                             rowEl.appendChild(priceEl);
                                             const sellBtn = document.createElement('button');
                                             sellBtn.type = 'button';

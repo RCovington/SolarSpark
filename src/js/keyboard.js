@@ -54,7 +54,17 @@ onkeyup = e => {
                     if (dist(body, U.playerShip) >= body.reachRadius) return false;
                     try {
                         const defenseless = !(body.stations && body.stations.length);
-                        const isAlly = body.civilization && body.civilization.relationshipType && body.civilization.relationshipType() === RELATIONSHIP_ALLY;
+                        let isAlly = false;
+                        try {
+                            if (body.civilization) {
+                                // Consider temporary can-dock window as ally
+                                if (body.civilization._canDockUntil && typeof G !== 'undefined' && G.clock <= body.civilization._canDockUntil) {
+                                    isAlly = true;
+                                } else if (body.civilization.relationshipType && body.civilization.relationshipType() === RELATIONSHIP_ALLY) {
+                                    isAlly = true;
+                                }
+                            }
+                        } catch (e) { /* ignore */ }
                         return isAlly || defenseless;
                     } catch (e) { return false; }
                 });

@@ -70,7 +70,8 @@ class PlanetaryStation {
                 const already = this.planet.civilization.temporaryEnemyUntil && this.planet.civilization.temporaryEnemyUntil > G.clock;
                 if (!already) {
                     this.planet.civilization.temporaryEnemyUntil = G.clock + secs;
-                    G.showMessage(this.planet.civilization.center.name + nomangle(' will be hostile for ') + String(secs) + 's');
+                    const disp = (typeof this.planet.civilization.getDisplayName === 'function') ? this.planet.civilization.getDisplayName() : (this.planet.civilization.center && this.planet.civilization.center.name) || 'Unknown';
+                    G.showMessage(disp + nomangle(' will be hostile for ') + String(secs) + 's');
                 }
             } catch (e) { /* ignore */ }
 
@@ -108,7 +109,8 @@ class PlanetaryStation {
                 const already = this.planet.civilization.temporaryEnemyUntil && this.planet.civilization.temporaryEnemyUntil > G.clock;
                 if (!already) {
                     this.planet.civilization.temporaryEnemyUntil = G.clock + secs;
-                    G.showMessage(this.planet.civilization.center.name + nomangle(' will be hostile for ') + String(secs) + 's');
+                    const disp = (typeof this.planet.civilization.getDisplayName === 'function') ? this.planet.civilization.getDisplayName() : (this.planet.civilization.center && this.planet.civilization.center.name) || 'Unknown';
+                    G.showMessage(disp + nomangle(' will be hostile for ') + String(secs) + 's');
                 }
             } catch (e) { /* ignore */ }
         }

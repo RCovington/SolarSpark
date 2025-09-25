@@ -122,6 +122,31 @@ class Game {
         // Update clock even when paused (UI animations rely on it), but gate gameplay updates
         G.clock += e;
 
+        // Check for any civilizations whose temporary hostility expired and restore them deterministically
+        try {
+            if (U && U.bodies) {
+                U.bodies.forEach(body => {
+                    try {
+                        const civ = body.civilization;
+                        if (civ && civ.temporaryEnemyUntil && civ.temporaryEnemyUntil <= G.clock) {
+                            // Restore saved numeric relationship if available
+                            try {
+                                if (typeof civ._previousRelationshipOnTempHostility !== 'undefined') {
+                                    civ.relationship = civ._previousRelationshipOnTempHostility;
+                                    try { delete civ._previousRelationshipOnTempHostility; } catch (e) { civ._previousRelationshipOnTempHostility = undefined; }
+                                }
+                            } catch (e) { /* ignore */ }
+                            civ.temporaryEnemyUntil = null;
+                            civ._revertAnimationUntil = G.clock + 0.6;
+                            // Allow immediate docking for a short window after revert
+                            civ._canDockUntil = G.clock + 0.6;
+                            try { G.showMessage((typeof civ.getDisplayName === 'function') ? civ.getDisplayName() : (civ.center && civ.center.name) || 'Unknown' + nomangle(' is no longer hostile')); } catch (e) {}
+                        }
+                    } catch (e) { /* ignore per-body errors */ }
+                });
+            }
+        } catch (e) { /* ignore */ }
+
         if (G.started && !G.paused) {
             if ((G.nextMission -= e) <= 0) {
                 G.promptRandomMission();
@@ -233,29 +258,44 @@ class Game {
                             if (v > highest) highest = v;
                         });
                     }
+                    // Draw 'Mod Lv:' label in white and numeric level in bright yellow
                     fs('#fff');
-                    fillText('Mod Lv: ' + String(highest), baseX, y2);
+                    fillText('Mod Lv:', baseX, y2);
+                    const modLabelWidth = R.measureText('Mod Lv:').width;
+                    fs('#fff067');
+                    fillText(String(highest), baseX + modLabelWidth + 6, y2);
                 } catch (e) { /* ignore mod label errors */ }
 
-                // Credits: show as CR: <num>
+                // Credits: show as CR: <num> with numeric part colored
                 try {
                     const credits = (U.playerShip && typeof U.playerShip.credits === 'number') ? U.playerShip.credits : ((U.playerShip && U.playerShip.credits) ? U.playerShip.credits : 0);
+                    // Draw label
                     fs('#fff');
-                    fillText('CR: ' + String(credits), baseX, y3);
+                    fillText('CR:', baseX, y3);
+                    // Draw numeric value in bright yellow slightly offset
+                    const labelWidth = R.measureText('CR:').width;
+                    fs('#fff067');
+                    fillText(String(credits), baseX + labelWidth + 6, y3);
                 } catch (e) { /* ignore credits label errors */ }
 
-                // Score: running total
+                // Score: running total (label white, number bright)
                 try {
                     const scoreVal = (window.Score && typeof Score.get === 'function') ? Score.get() : 0;
                     fs('#fff');
-                    fillText('Score: ' + String(scoreVal), baseX, y4);
+                    fillText('Score:', baseX, y4);
+                    const lw = R.measureText('Score:').width;
+                    fs('#fff067');
+                    fillText(String(scoreVal), baseX + lw + 6, y4);
                 } catch (e) { /* ignore score HUD errors */ }
 
-                // Lives
+                // Lives (label white, numeric bright)
                 try {
                     const lives = (typeof G.lives === 'number') ? G.lives : 0;
                     fs('#fff');
-                    fillText('Lives: ' + String(lives), baseX, y5);
+                    fillText('Lives:', baseX, y5);
+                    const lw2 = R.measureText('Lives:').width;
+                    fs('#fff067');
+                    fillText(String(lives), baseX + lw2 + 6, y5);
                 } catch (e) { /* ignore lives label errors */ }
             } catch (e) { /* non-fatal HUD overlay error */ }
 
@@ -711,6 +751,70 @@ class Game {
                             window.createMenuPanel({ id: 'pause-my-planets', title: 'My Planets', sections: [{ rows }], buttons: [], noClose: false });
                         } catch (e) {}
                     }},
+                        { label: 'Settings', onClick: () => {
+                            try {
+                                // Load saved settings or defaults
+                                const savedVol = (typeof localStorage !== 'undefined') ? parseFloat(localStorage.getItem('ss_volume') || '1') : 1;
+                                const savedMuted = (typeof localStorage !== 'undefined') ? (localStorage.getItem('ss_muted') === '1') : false;
+
+                                const sections = [
+                                    { rows: [
+                                        { label: 'Volume', value: '' },
+                                    ]}
+                                ];
+
+                                const panel = window.createMenuPanel({ id: 'pause-settings', title: 'Settings', sections, buttons: [
+                                    { label: 'Close', onClick: () => { try { if (panel && panel.remove) panel.remove(); } catch (e) {} } }
+                                ], noClose: false });
+
+                                // Build controls
+                                try {
+                                    const container = document.createElement('div');
+                                    container.style.padding = '6px 8px';
+                                    container.style.display = 'flex';
+                                    container.style.flexDirection = 'column';
+                                    container.style.gap = '8px';
+
+                                    const volRow = document.createElement('div');
+                                    volRow.style.display = 'flex';
+                                    volRow.style.alignItems = 'center';
+                                    const volLabel = document.createElement('div'); volLabel.textContent = 'Volume'; volLabel.style.width = '70px';
+                                    const volInput = document.createElement('input'); volInput.type = 'range'; volInput.min = 0; volInput.max = 1; volInput.step = 0.01; volInput.value = String(savedVol);
+                                    volInput.style.flex = '1';
+                                    const volValue = document.createElement('div'); volValue.textContent = Math.round(savedVol * 100) + '%'; volValue.style.width = '50px'; volValue.style.textAlign = 'right';
+                                    volInput.oninput = () => { volValue.textContent = Math.round(parseFloat(volInput.value) * 100) + '%'; };
+                                    volInput.onchange = () => {
+                                        const v = parseFloat(volInput.value);
+                                        try { window.__SS_volume = v; } catch (e) {}
+                                        try { if (typeof window.setMasterVolume === 'function') window.setMasterVolume(v); } catch (e) {}
+                                        try { if (typeof localStorage !== 'undefined') localStorage.setItem('ss_volume', String(v)); } catch (e) {}
+                                    };
+                                    volRow.appendChild(volLabel); volRow.appendChild(volInput); volRow.appendChild(volValue);
+
+                                    const muteRow = document.createElement('div'); muteRow.style.display = 'flex'; muteRow.style.alignItems = 'center'; muteRow.style.gap = '8px';
+                                    const muteInput = document.createElement('input'); muteInput.type = 'checkbox'; muteInput.checked = !!savedMuted;
+                                    const muteLabel = document.createElement('div'); muteLabel.textContent = 'Mute';
+                                    muteInput.onchange = () => {
+                                        try { window.__SS_muted = !!muteInput.checked; } catch (e) {}
+                                        try { if (typeof window.setMuted === 'function') window.setMuted(!!muteInput.checked); } catch (e) {}
+                                        try { if (typeof localStorage !== 'undefined') localStorage.setItem('ss_muted', muteInput.checked ? '1' : '0'); } catch (e) {}
+                                    };
+                                    muteRow.appendChild(muteInput); muteRow.appendChild(muteLabel);
+
+                                    container.appendChild(volRow);
+                                    container.appendChild(muteRow);
+
+                                    // Insert into panel
+                                    try { panel.appendChild(container); } catch (e) { panel.appendChild(container); }
+
+                                    // Apply initial values to global hooks
+                                    try { window.__SS_volume = savedVol; } catch (e) {}
+                                    try { window.__SS_muted = !!savedMuted; } catch (e) {}
+                                    try { if (typeof window.setMasterVolume === 'function') window.setMasterVolume(savedVol); } catch (e) {}
+                                    try { if (typeof window.setMuted === 'function') window.setMuted(!!savedMuted); } catch (e) {}
+                                } catch (e) { /* ignore control creation errors */ }
+                            } catch (e) { /* ignore */ }
+                        }},
                     { label: 'High Scores', onClick: () => { try { if (window.Score) Score.showHighScoreBoard(); } catch (e) {} }},
                     { label: 'Resume', onClick: () => {
                         try {
@@ -893,7 +997,10 @@ class Game {
 
         if (!G.startedOnce) {
             V.zoomScale = V.targetScaleOverride = 1;
-            setTimeout(() => G.proceedToMissionStep(new PromptTutorialStep()), 3000);
+            // Previously the InstructionsStep called U.generateUniverse(); make sure
+            // we still generate the universe when starting the game the first time
+            // even though we skip showing the tutorial prompt.
+            try { if (typeof U !== 'undefined' && typeof U.generateUniverse === 'function') U.generateUniverse(); } catch (e) {}
         }
 
     // Increase mission cadence baseline for less frequent incoming communications

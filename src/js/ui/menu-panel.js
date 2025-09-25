@@ -71,6 +71,37 @@
         font-weight: bold;
         color: #ffd;
     }
+    /* Highlight numeric/value fields so they pop against the labels. Split number and unit so units stay white. */
+    .menu-panel .info-row span.value, #menu-panel .info-row span.value, #trading-panel .info-row span.value {
+        font-weight: bold;
+        text-shadow: 0 0 4px rgba(255,209,90,0.12);
+        font-size: 15px; /* slightly larger than the base 14px */
+        display:inline-flex; align-items:center; gap:6px;
+    }
+    /* bright numeric color */
+    .menu-panel .info-row span.value .value-num, #menu-panel .info-row span.value .value-num, #trading-panel .info-row span.value .value-num {
+        color: #fff067; /* brighter yellow requested */
+        font-weight: bold;
+    }
+    /* units / suffixes remain white */
+    .menu-panel .info-row span.value .value-unit, #menu-panel .info-row span.value .value-unit, #trading-panel .info-row span.value .value-unit {
+        color: #fff;
+        font-weight: normal;
+        font-size: 12px;
+        opacity: 0.95;
+    }
+    /* Planetary Trade: teal for unit quantity numbers, orange for per-unit price numbers */
+    /* Teal for quantities inside the market-name span */
+    #planetary-trade-panel .market-name .value-num, .menu-panel#planetary-trade-panel .market-name .value-num {
+        color: #2ec4b6; /* teal */
+        font-weight: bold;
+    }
+    /* Orange for per-unit price numeric parts */
+    #planetary-trade-panel .price-el .value-num, #planetary-trade-panel .market-price-placeholder .value-num, #planetary-trade-panel .inv-price-el .value-num,
+    .menu-panel#planetary-trade-panel .price-el .value-num, .menu-panel#planetary-trade-panel .market-price-placeholder .value-num, .menu-panel#planetary-trade-panel .inv-price-el .value-num {
+        color: #ff8c42; /* orange */
+        font-weight: bold;
+    }
  .menu-panel h2, #menu-panel h2, #trading-panel h2 { color: #00ffff; text-align: center; margin: 0 0 12px 0; font-size: 18px; }
  .menu-panel .section, #menu-panel .section, #trading-panel .section { margin-bottom: 12px; padding: 10px; background: rgba(0,0,0,0.3); border-radius: 5px; }
  .menu-panel .section h3, #menu-panel .section h3, #trading-panel .section h3 { color: #ffff00; margin: 0 0 8px 0; font-size: 14px; }
@@ -123,7 +154,26 @@
                     if (sec.title) bodyHtml += `<h3>${sec.title}</h3>`;
                     if (sec.rows && sec.rows.length) {
                         sec.rows.forEach(r => {
-                            bodyHtml += `<div class="info-row"><span>${r.label}</span><span>${r.value}</span></div>`;
+                            // label in left span
+                            // value may include a unit suffix like "123 CR" or "5 units"; try to split automatically
+                            let valueHtml = '';
+                            try {
+                                const v = (typeof r.value === 'number') ? String(r.value) : (r.value || '');
+                                // Match numeric part followed by space and unit (letters, %, / or words)
+                                const m = String(v).match(/^\s*([0-9.,+-]+)\s*(.*)$/);
+                                if (m && m[2]) {
+                                    const num = m[1];
+                                    const unit = m[2];
+                                    valueHtml = `<span class="value-num">${num}</span><span class="value-unit">${unit}</span>`;
+                                } else {
+                                    // fallback: render whole value as numeric span
+                                    valueHtml = `<span class="value-num">${v}</span>`;
+                                }
+                            } catch (e) {
+                                valueHtml = `<span class="value-num">${r.value}</span>`;
+                            }
+
+                            bodyHtml += `<div class="info-row"><span class="label">${r.label}</span><span class="value">${valueHtml}</span></div>`;
                         });
                     }
                     if (sec.extraHtml) bodyHtml += sec.extraHtml;
@@ -147,8 +197,13 @@
                             if (typeof b.onClick === 'function') b.onClick(ev);
                         } catch (e) { console.error(e); }
                         try {
-                            if (b.autoClose === true) panel.remove();
-                            if (options.onClose) options.onClose();
+                            // Only invoke onClose when the panel is actually being closed.
+                            if (b.autoClose === true) {
+                                try { if (panel.onClose) panel.onClose(); } catch (e) {}
+                                try { panel.remove(); } catch (e) {}
+                            }
+                            // Do not call the panel-level onClose for ordinary button clicks. That
+                            // caused pause panels to unpause when opening subpanels (e.g. Settings).
                         } catch (e) { console.error('menu-panel post-click error', e); }
                     }, 0);
                 } catch (e) {
@@ -167,15 +222,20 @@
             });
         }
 
-        // Always include a Close button unless explicitly disabled
+        // Always include a Close button unless explicitly disabled or the caller
+        // already provided a Close-labeled button. We also avoid calling the
+        // panel-level onClose for ordinary button clicks (see attachDeferredHandler).
         if (!options.noClose) {
-            const closeBtn = document.createElement('button');
-            closeBtn.textContent = 'Close';
-            closeBtn.addEventListener('click', () => {
-                try { panel.remove(); } catch (e) {}
-                if (options.onClose) options.onClose();
-            });
-            buttonsContainer.appendChild(closeBtn);
+            const alreadyHasClose = (options.buttons || []).some(b => (b && String(b.label || '').toLowerCase() === 'close'));
+            if (!alreadyHasClose) {
+                const closeBtn = document.createElement('button');
+                closeBtn.textContent = 'Close';
+                closeBtn.addEventListener('click', () => {
+                    try { if (panel.onClose) panel.onClose(); } catch (e) {}
+                    try { panel.remove(); } catch (e) {}
+                });
+                buttonsContainer.appendChild(closeBtn);
+            }
         }
 
         panel.innerHTML = titleHtml + bodyHtml;

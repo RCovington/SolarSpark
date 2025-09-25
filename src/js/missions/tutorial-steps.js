@@ -79,10 +79,8 @@ class InstructionsStep extends MissionStep {
 
         U.generateUniverse();
 
-        G.showPrompt(nomangle('Bring PEACE to the galaxy, or WAR...'), [{
-            'label': dismiss,
-            'action': () => this.proceed()
-        }]);
+        // Skip the opening message so the game starts immediately after pressing Enter
+        this.proceed();
 
         G.nextMission = 0;
     }

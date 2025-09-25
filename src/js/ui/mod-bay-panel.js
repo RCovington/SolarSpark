@@ -158,25 +158,19 @@
             sections.push({ title: '', html: `<div style="text-align:center;font-weight:bold;margin-bottom:8px;">Credits: <span id="mod-bay-credits">${credits}</span></div>` });
 
             // Build rows with inline upgrade placeholders
-            const rows = MOD_AREAS.map(area => {
+            // Build the Available Upgrades section as raw HTML so we can ensure numeric/unit spans for styling
+            let upgradesHtml = '<div class="section">';
+            upgradesHtml += `<h3>${nomangle('Available Upgrades')}</h3>`;
+            MOD_AREAS.forEach(area => {
                 const level = ship.upgrades[area.key] || 1;
                 const cost = nextLevelCost(level);
-                // For cargo, include a numeric capacity display element we can update
-                if (area.key === 'cargo') {
-                    return {
-                        label: `${area.label} (Level ${level})`,
-                        value: `<span class="mod-bay-cost" data-area="${area.key}">${cost} cr</span> <span style="margin-left:8px;"><button type="button" class="mod-bay-upgrade-btn" data-area="${area.key}">Upgrade</button></span>`
-                    };
-                }
-
-                return {
-                    label: `${area.label} (Level ${level})`,
-                    // value will be replaced by a span that contains cost and an inline button
-                    value: `<span class="mod-bay-cost" data-area="${area.key}">${cost} cr</span> <span style=\"margin-left:8px;\"><button type=\"button\" class=\"mod-bay-upgrade-btn\" data-area=\"${area.key}\">Upgrade</button></span>`
-                };
+                // Compose an info-row with explicit numeric and unit spans so 'cr' stays white
+                upgradesHtml += `<div class="info-row"><span class="label">${area.label} (Level ${level})</span>`;
+                upgradesHtml += `<span class="value"><span class="mod-bay-cost" data-area="${area.key}"><span class="value-num">${cost}</span><span class="value-unit">cr</span></span> <span style="margin-left:8px;"><button type="button" class="mod-bay-upgrade-btn" data-area="${area.key}">Upgrade</button></span></span>`;
+                upgradesHtml += `</div>`;
             });
-
-            sections.push({ title: nomangle('Available Upgrades'), rows });
+            upgradesHtml += '</div>';
+            sections.push({ html: upgradesHtml });
 
             // Create the panel (no separate buttons)
             const panel = window.createMenuPanel({
@@ -234,7 +228,12 @@
                                 if (costEl) {
                                     const newLevel = ship.upgrades[areaKey] || 1;
                                     const newCost = nextLevelCost(newLevel);
-                                    costEl.textContent = newCost + ' cr';
+                                    // Update only the numeric child so unit span stays intact
+                                    try {
+                                        const numEl = costEl.querySelector('.value-num');
+                                        if (numEl) numEl.textContent = String(newCost);
+                                        else costEl.textContent = newCost + ' cr';
+                                    } catch (e) { costEl.textContent = newCost + ' cr'; }
                                     // Also update the label text
                                     const rowLabel = costEl.closest('.info-row').querySelector('span');
                                     if (rowLabel) rowLabel.textContent = `${MOD_AREAS.find(a=>a.key===areaKey).label} (Level ${newLevel})`;

@@ -17,26 +17,10 @@ class Civilization {
     relationshipType() {
         // Colonized civilizations are always allies
         if (this.colonized) return RELATIONSHIP_ALLY;
-        // If temporarily marked as enemy due to recent player aggression, check expiry
+        // If temporarily marked as enemy due to recent player aggression, check if still active
         try {
-            if (this.temporaryEnemyUntil) {
-                if (typeof G !== 'undefined' && G.clock <= this.temporaryEnemyUntil) {
-                    // Still hostile
-                    return RELATIONSHIP_ENEMY;
-                }
-                // Timer expired — restore prior relationship if we saved one, clear saved state and notify once
-                try {
-                    if (typeof this._previousRelationshipOnTempHostility !== 'undefined') {
-                        this.relationship = this._previousRelationshipOnTempHostility;
-                        try { delete this._previousRelationshipOnTempHostility; } catch (e) { this._previousRelationshipOnTempHostility = undefined; }
-                    }
-                } catch (e) { /* ignore */ }
-                this.temporaryEnemyUntil = null;
-                try {
-                    // Trigger a short revert animation on bodies that use this civilization
-                    this._revertAnimationUntil = G.clock + 0.6; // 0.6s animation
-                } catch (e) { /* ignore */ }
-                try { G.showMessage(this.center.name + nomangle(' is no longer hostile')); } catch (e) { /* ignore */ }
+            if (this.temporaryEnemyUntil && typeof G !== 'undefined' && G.clock <= this.temporaryEnemyUntil) {
+                return RELATIONSHIP_ENEMY;
             }
         } catch (e) { /* ignore */ }
         return this.relationship < 0.5 ? RELATIONSHIP_ENEMY : RELATIONSHIP_ALLY;
@@ -44,6 +28,28 @@ class Civilization {
 
     relationshipLabel() {
         return this.relationshipType() === RELATIONSHIP_ENEMY ? nomangle('enemy') : nomangle('ally');
+    }
+
+    // Friendly display name for messages/panels. Falls back to center.name or constructs a station title.
+    getDisplayName() {
+        try {
+            if (!this.center) return 'Unknown';
+            // If center is an orbital station with a star, build the same title as orbital station's UI
+            if (this.center.star) {
+                let title = (this.center.star && this.center.star.name ? this.center.star.name : 'Unknown') + ' - Station - 1';
+                try {
+                    if (U && U.orbitalStations) {
+                        const siblings = U.orbitalStations.filter(s => s.star === this.center.star);
+                        const index = siblings.indexOf(this.center) + 1 || 1;
+                        title = (this.center.star && this.center.star.name ? this.center.star.name : 'Unknown') + ' - Station - ' + index;
+                    }
+                } catch (e) {}
+                return title;
+            }
+            // If center is a planet-like body with a name, use that
+            if (this.center.name) return this.center.name;
+        } catch (e) { /* ignore */ }
+        return 'Unknown';
     }
 
     updateRelationship(difference) {

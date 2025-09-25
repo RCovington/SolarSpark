@@ -145,7 +145,8 @@ class OrbitalStation {
                 // Only set and announce if not already in temporary hostile mode
                 if (!already) {
                     this.civilization.temporaryEnemyUntil = G.clock + secs;
-                    G.showMessage(this.civilization.center.name + nomangle(' will be hostile for ') + String(secs) + 's');
+                    const disp = (typeof this.civilization.getDisplayName === 'function') ? this.civilization.getDisplayName() : (this.civilization.center && this.civilization.center.name) || 'Unknown';
+                    G.showMessage(disp + nomangle(' will be hostile for ') + String(secs) + 's');
                 }
             } catch (e) { /* ignore */ }
 
@@ -343,7 +344,8 @@ class OrbitalStation {
                 const already = this.civilization.temporaryEnemyUntil && this.civilization.temporaryEnemyUntil > G.clock;
                 if (!already) {
                     this.civilization.temporaryEnemyUntil = G.clock + secs;
-                    G.showMessage(this.civilization.center.name + nomangle(' will be hostile for ') + String(secs) + 's');
+                    const disp = (typeof this.civilization.getDisplayName === 'function') ? this.civilization.getDisplayName() : (this.civilization.center && this.civilization.center.name) || 'Unknown';
+                    G.showMessage(disp + nomangle(' will be hostile for ') + String(secs) + 's');
                 }
             } catch (e) { /* ignore */ }
         }

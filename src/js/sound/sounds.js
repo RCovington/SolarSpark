@@ -4,10 +4,32 @@ soundPool = (settings, poolSize = 1) => {
 
     return () => {
         const sound = sounds()[index++ % sounds().length];
+        try {
+            // Apply global volume/mute if present. jsfxr returns an HTMLAudioElement.
+            if (typeof window !== 'undefined') {
+                try { if (typeof window.__SS_volume !== 'undefined') sound.volume = Math.max(0, Math.min(1, Number(window.__SS_volume) || 0)); } catch (e) {}
+                try { if (typeof window.__SS_muted !== 'undefined') sound.muted = !!window.__SS_muted; } catch (e) {}
+            }
+        } catch (e) {}
         sound.play();
         return sound;
     };
 };
+
+// Expose simple setters to control global volume/mute from UI.
+try {
+    if (typeof window !== 'undefined') {
+        window.setMasterVolume = function(v) {
+            try { window.__SS_volume = Math.max(0, Math.min(1, Number(v) || 0)); } catch (e) { window.__SS_volume = 1; }
+            // Note: existing Audio instances won't be retroactively updated here, but
+            // new sounds will respect the updated volume. This is sufficient for the
+            // game's short, per-sound playback model (jsfxr generates one-shot Audio).
+        };
+        window.setMuted = function(m) {
+            try { window.__SS_muted = !!m; } catch (e) { window.__SS_muted = false; }
+        };
+    }
+} catch (e) {}
 
 const explosionSound = soundPool([3,,0.3346,0.2953,0.4941,0.1205,,-0.2565,,,,,,,,,-0.1093,-0.2344,1,,,,,0.5]),
     shootSound = soundPool([0,,0.1584,0.1384,0.2216,0.63,,-0.2653,,,,,,0.1485,,,,,1,,,0.1888,,0.5], 10),
