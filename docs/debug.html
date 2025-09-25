@@ -2150,6 +2150,28 @@ class Civilization {
     relationshipType() {
         // Colonized civilizations are always allies
         if (this.colonized) return '#0f0';
+        // If temporarily marked as enemy due to recent player aggression, check expiry
+        try {
+            if (this.temporaryEnemyUntil) {
+                if (typeof G !== 'undefined' && G.clock <= this.temporaryEnemyUntil) {
+                    // Still hostile
+                    return '#f00';
+                }
+                // Timer expired — restore prior relationship if we saved one, clear saved state and notify once
+                try {
+                    if (typeof this._previousRelationshipOnTempHostility !== 'undefined') {
+                        this.relationship = this._previousRelationshipOnTempHostility;
+                        try { delete this._previousRelationshipOnTempHostility; } catch (e) { this._previousRelationshipOnTempHostility = undefined; }
+                    }
+                } catch (e) { /* ignore */ }
+                this.temporaryEnemyUntil = null;
+                try {
+                    // Trigger a short revert animation on bodies that use this civilization
+                    this._revertAnimationUntil = G.clock + 0.6; // 0.6s animation
+                } catch (e) { /* ignore */ }
+                try { G.showMessage(this.center.name + ' is no longer hostile'); } catch (e) { /* ignore */ }
+            }
+        } catch (e) { /* ignore */ }
         return this.relationship < 0.5 ? '#f00' : '#0f0';
     }
 
@@ -2547,6 +2569,7 @@ class Ship {
         // Mark explosion handling complete (for GC); keep flag set to avoid re-entry
     }
 }
+
 
 class PlayerShip extends Ship {
 
@@ -3022,9 +3045,23 @@ class PlanetaryStation {
     render() {
         let damageFactor = 1 - limit(0, G.clock - this.lastDamage, 0.1) / 0.1;
 
-        scale(1 + damageFactor * 0.2, 1 + damageFactor * 0.2);
+        // Base scale including damage pulse
+        let baseScale = 1 + damageFactor * 0.2;
+        let overrideColor = null;
+        try {
+            let revertUntil = this.planet.civilization._revertAnimationUntil;
+            if (revertUntil && G.clock <= revertUntil) {
+                let dur = 0.6;
+                let progress = 1 - Math.max(0, (revertUntil - G.clock) / dur);
+                let bounce = 0.12 * Math.sin(progress * Math.PI);
+                baseScale *= (1 + bounce);
+                overrideColor = '#0f0';
+            }
+        } catch (e) { /* ignore */ }
 
-        fs(damageFactor > 0 ? '#fff' : ((this.planet.civilization.relationshipType() === '#f00' || this.planet.civilization.wasAttackedByPlayer) ? '#f00' : (this.planet.civilization.relationshipType() === '#0f0' ? '#0f0' : '#ff0')));
+        scale(baseScale, baseScale);
+
+        fs(damageFactor > 0 ? '#fff' : (overrideColor || this.planet.civilization.relationshipType()));
         this.renderGraphic();
     }
 
@@ -3046,6 +3083,19 @@ class PlanetaryStation {
             this.lastDamage = G.clock;
 
             this.planet.civilization.updateRelationship(-0.05);
+            try {
+                if (typeof this.planet.civilization._previousRelationshipOnTempHostility === 'undefined') {
+                    this.planet.civilization._previousRelationshipOnTempHostility = this.planet.civilization.relationship;
+                }
+            } catch (e) { /* ignore */ }
+            try {
+                let secs = (typeof 120 === 'number') ? 120 : 120;
+                let already = this.planet.civilization.temporaryEnemyUntil && this.planet.civilization.temporaryEnemyUntil > G.clock;
+                if (!already) {
+                    this.planet.civilization.temporaryEnemyUntil = G.clock + secs;
+                    G.showMessage(this.planet.civilization.center.name + ' will be hostile for ' + String(secs) + 's');
+                }
+            } catch (e) { /* ignore */ }
 
             if ((this.health -= amount) <= 0) {
                 this.explode(source);
@@ -3070,7 +3120,20 @@ class PlanetaryStation {
 
         if (source == U.playerShip) {
             this.planet.civilization.updateRelationship(-0.2);
+            try {
+                if (typeof this.planet.civilization._previousRelationshipOnTempHostility === 'undefined') {
+                    this.planet.civilization._previousRelationshipOnTempHostility = this.planet.civilization.relationship;
+                }
+            } catch (e) { /* ignore */ }
             try { if (window.Score) Score.add(2, 'defense'); } catch (e) {}
+            try {
+                let secs = (typeof 120 === 'number') ? 120 : 120;
+                let already = this.planet.civilization.temporaryEnemyUntil && this.planet.civilization.temporaryEnemyUntil > G.clock;
+                if (!already) {
+                    this.planet.civilization.temporaryEnemyUntil = G.clock + secs;
+                    G.showMessage(this.planet.civilization.center.name + ' will be hostile for ' + String(secs) + 's');
+                }
+            } catch (e) { /* ignore */ }
         }
 
         G.eventHub.emit(0, this);
@@ -4897,15 +4960,30 @@ class OrbitalStation {
         }
 
         translate(this.x - this.star.x, this.y - this.star.y);
-        
-        let damageFactor = 1 - limit(0, G.clock - this.lastDamage, 0.1) / 0.1;
-        scale(1 + damageFactor * 0.2, 1 + damageFactor * 0.2);
 
-        // Color based on relationship and damage
-        let color = damageFactor > 0 ? '#fff' : 
+        let damageFactor = 1 - limit(0, G.clock - this.lastDamage, 0.1) / 0.1;
+        // Base scale from damage pulse
+        let baseScale = 1 + damageFactor * 0.2;
+        // If a revert animation is active on the civilization, add a small bounce and force green color
+        let overrideColor = null;
+        try {
+            let revertUntil = this.civilization._revertAnimationUntil;
+            if (revertUntil && G.clock <= revertUntil) {
+                let dur = 0.6;
+                let progress = 1 - Math.max(0, (revertUntil - G.clock) / dur);
+                let bounce = 0.12 * Math.sin(progress * Math.PI);
+                baseScale *= (1 + bounce);
+                overrideColor = '#0f0';
+            }
+        } catch (e) { /* ignore */ }
+
+        scale(baseScale, baseScale);
+
+        // Color based on relationship and damage (override to green during revert)
+        let color = damageFactor > 0 ? '#fff' : (overrideColor ||
             (this.civilization.relationshipType() === '#f00' ? '#f00' : 
-             (this.civilization.relationshipType() === '#0f0' ? '#0f0' : '#ff0'));
-        
+             (this.civilization.relationshipType() === '#0f0' ? '#0f0' : '#ff0')));
+
         fs(color);
         R.lineWidth = 4;
         
@@ -4936,8 +5014,23 @@ class OrbitalStation {
             ]);
 
             this.lastDamage = G.clock;
+            // Save prior relationship numeric value so we can restore it after timeout
+            try {
+                if (typeof this.civilization._previousRelationshipOnTempHostility === 'undefined') {
+                    this.civilization._previousRelationshipOnTempHostility = this.civilization.relationship;
+                }
+            } catch (e) { /* ignore */ }
             this.civilization.updateRelationship(-0.05);
             this.civilization.wasAttackedByPlayer = 1;
+            try {
+                let secs = (typeof 120 === 'number') ? 120 : 120;
+                let already = this.civilization.temporaryEnemyUntil && this.civilization.temporaryEnemyUntil > G.clock;
+                // Only set and announce if not already in temporary hostile mode
+                if (!already) {
+                    this.civilization.temporaryEnemyUntil = G.clock + secs;
+                    G.showMessage(this.civilization.center.name + ' will be hostile for ' + String(secs) + 's');
+                }
+            } catch (e) { /* ignore */ }
 
             if ((this.health -= amount) <= 0) {
                 this.explode(source);
@@ -5121,8 +5214,21 @@ class OrbitalStation {
     U.remove(U.orbitalStations, this);
 
         if (source == U.playerShip) {
+            try {
+                if (typeof this.civilization._previousRelationshipOnTempHostility === 'undefined') {
+                    this.civilization._previousRelationshipOnTempHostility = this.civilization.relationship;
+                }
+            } catch (e) { /* ignore */ }
             this.civilization.updateRelationship(-0.2);
             try { if (window.Score) Score.add(2, 'defense'); } catch (e) {}
+            try {
+                let secs = (typeof 120 === 'number') ? 120 : 120;
+                let already = this.civilization.temporaryEnemyUntil && this.civilization.temporaryEnemyUntil > G.clock;
+                if (!already) {
+                    this.civilization.temporaryEnemyUntil = G.clock + secs;
+                    G.showMessage(this.civilization.center.name + ' will be hostile for ' + String(secs) + 's');
+                }
+            } catch (e) { /* ignore */ }
         }
 
         U.dropResources(this.x, this.y, 15);
@@ -6233,7 +6339,7 @@ onkeyup = e => {
         console.log('Dock/Trade attempt error:', err && err.message);
     }
     try {
-        // Access Incoming Communications with the 'A' key
+        // Access Incoming Communications with the 'A' key - direct mission access
         if (character === 'a' && typeof U !== 'undefined' && U && U.playerShip) {
             // Find a visible planet that currently has an offer (prefer closest)
             let visibleOffers = (U.bodies || []).filter(body => body instanceof Planet && body.hasOffer && V.isVisible(body, body.radius + 50));
@@ -6247,31 +6353,8 @@ onkeyup = e => {
 
             if (!chosen) return;
 
-            // If planet is friendly and player is in reach, show a combined prompt with Dock (D) and Accept (A)
-            let isFriendly = chosen.civilization && chosen.civilization.relationshipType && chosen.civilization.relationshipType() === '#0f0';
-            let playerDistance = dist(chosen, U.playerShip);
-            if (isFriendly && playerDistance < chosen.reachRadius) {
-                let title = (chosen.name || 'Unknown');
-                G.showPrompt(title + '\nPress [D] to dock\nPress [A] to accept incoming communication', [{
-                    'label': 'Dock',
-                    'action': () => {
-                        if (window.createPlanetaryTradePanel) {
-                            window.createPlanetaryTradePanel(chosen, U.playerShip);
-                        } else {
-                            G.showPrompt((chosen.name || 'Unknown') + '\nPlanetary trade unavailable');
-                        }
-                    }
-                }, {
-                    'label': 'Accept',
-                    'action': () => { if (G && typeof G.promptMissionFromPlanet === 'function') G.promptMissionFromPlanet(chosen); }
-                }, {
-                    'label': 'Ignore',
-                    'action': () => G.showPrompt()
-                }]);
-            } else {
-                // Otherwise, directly start the mission prompt flow for that planet
-                if (G && typeof G.promptMissionFromPlanet === 'function') G.promptMissionFromPlanet(chosen);
-            }
+            // Directly start the mission prompt flow for that planet - no intermediate prompts
+            if (G && typeof G.promptMissionFromPlanet === 'function') G.promptMissionFromPlanet(chosen);
         }
     } catch (err) {
         console.log('Access offers (A) error:', err && err.message);
@@ -7496,6 +7579,13 @@ onload = () => {
                 if (hasPrompt && opts.length) {
                     let full = (G.currentPromptText && (G.currentPromptText().length >= (G.promptText() || '').length));
                     if (full && !G.selectedPromptOption) {
+                        // Special case: if there's only one option, tapping anywhere should activate it
+                        if (opts.length === 1) {
+                            try { if (typeof G.selectPromptOption === 'function') G.selectPromptOption(0); } catch (e) {}
+                            return; // consumed by single-option selection
+                        }
+
+                        // Multiple options: check specific option boxes
                         let screenX = x * 1000;
                         let screenY = y * CANVAS_HEIGHT;
                         // Match the same transform used in render: prompt area anchored at bottom
@@ -7520,21 +7610,59 @@ onload = () => {
             let worldX = (x * 1000 - 1000 / 2) / V.zoomScale + V.x;
             let worldY = (y * CANVAS_HEIGHT - CANVAS_HEIGHT / 2) / V.zoomScale + V.y;
 
-            // Find planets near the click
+            // Find planets near the click - distinguish between planet body and exclamation icon
             let clickedPlanet = null;
+            let clickedOfferIcon = 0;
+            
             U.bodies.forEach(body => {
                 if (body instanceof Planet) {
                     let d = Math.sqrt((body.x - worldX) * (body.x - worldX) + (body.y - worldY) * (body.y - worldY));
-                    if (d <= body.radius + 8 && body.hasOffer) {
+                    
+                    // Check if we clicked on the exclamation icon (if planet has an offer)
+                    if (body.hasOffer) {
+                        let iconSize = Math.max(12, Math.min(24, ~~(body.radius / 2)));
+                        // Icon is centered on the planet, so check if click is within icon bounds
+                        if (d <= iconSize + 4) { // small buffer around icon
+                            clickedPlanet = body;
+                            clickedOfferIcon = 1;
+                            return;
+                        }
+                    }
+                    
+                    // Check if we clicked on the planet body itself (for docking)
+                    if (d <= body.radius + 8) {
                         clickedPlanet = body;
+                        clickedOfferIcon = 0;
                     }
                 }
             });
 
             if (clickedPlanet) {
-                // Trigger incoming communication / mission prompt for that planet
-                if (G && typeof G.promptMissionFromPlanet === 'function') {
-                    G.promptMissionFromPlanet(clickedPlanet);
+                if (clickedOfferIcon) {
+                    // Clicked exclamation icon: trigger incoming communication / mission prompt
+                    if (G && typeof G.promptMissionFromPlanet === 'function') {
+                        G.promptMissionFromPlanet(clickedPlanet);
+                    }
+                } else {
+                    // Clicked planet body: attempt to dock if in range
+                    let playerShip = U.playerShip;
+                    if (playerShip && dist(playerShip, clickedPlanet) <= clickedPlanet.reachRadius) {
+                        try {
+                            // Trigger docking action directly
+                            if (typeof clickedPlanet.dock === 'function') {
+                                clickedPlanet.dock(playerShip);
+                            } else if (G && typeof G.showPrompt === 'function') {
+                                // Fallback: show dock prompt
+                                G.showPrompt('Press D to dock.', [{
+                                    label: 'Dock',
+                                    action: () => {
+                                        try { if (typeof clickedPlanet.dock === 'function') clickedPlanet.dock(playerShip); } catch (e) {}
+                                        G.showPrompt();
+                                    }
+                                }]);
+                            }
+                        } catch (e) { /* ignore dock errors */ }
+                    }
                 }
             }
         } catch (e) { /* ignore click errors */ }
