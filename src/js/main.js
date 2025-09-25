@@ -61,6 +61,13 @@ onload = () => {
                 if (hasPrompt && opts.length) {
                     const full = (G.currentPromptText && (G.currentPromptText().length >= (G.promptText() || '').length));
                     if (full && !G.selectedPromptOption) {
+                        // Special case: if there's only one option, tapping anywhere should activate it
+                        if (opts.length === 1) {
+                            try { if (typeof G.selectPromptOption === 'function') G.selectPromptOption(0); } catch (e) {}
+                            return; // consumed by single-option selection
+                        }
+
+                        // Multiple options: check specific option boxes
                         const screenX = x * CANVAS_WIDTH;
                         const screenY = y * CANVAS_HEIGHT;
                         // Match the same transform used in render: prompt area anchored at bottom
@@ -85,21 +92,59 @@ onload = () => {
             const worldX = (x * CANVAS_WIDTH - CANVAS_WIDTH / 2) / V.zoomScale + V.x;
             const worldY = (y * CANVAS_HEIGHT - CANVAS_HEIGHT / 2) / V.zoomScale + V.y;
 
-            // Find planets near the click
+            // Find planets near the click - distinguish between planet body and exclamation icon
             let clickedPlanet = null;
+            let clickedOfferIcon = false;
+            
             U.bodies.forEach(body => {
                 if (body instanceof Planet) {
                     const d = Math.sqrt((body.x - worldX) * (body.x - worldX) + (body.y - worldY) * (body.y - worldY));
-                    if (d <= body.radius + 8 && body.hasOffer) {
+                    
+                    // Check if we clicked on the exclamation icon (if planet has an offer)
+                    if (body.hasOffer) {
+                        const iconSize = Math.max(12, Math.min(24, ~~(body.radius / 2)));
+                        // Icon is centered on the planet, so check if click is within icon bounds
+                        if (d <= iconSize + 4) { // small buffer around icon
+                            clickedPlanet = body;
+                            clickedOfferIcon = true;
+                            return;
+                        }
+                    }
+                    
+                    // Check if we clicked on the planet body itself (for docking)
+                    if (d <= body.radius + 8) {
                         clickedPlanet = body;
+                        clickedOfferIcon = false;
                     }
                 }
             });
 
             if (clickedPlanet) {
-                // Trigger incoming communication / mission prompt for that planet
-                if (G && typeof G.promptMissionFromPlanet === 'function') {
-                    G.promptMissionFromPlanet(clickedPlanet);
+                if (clickedOfferIcon) {
+                    // Clicked exclamation icon: trigger incoming communication / mission prompt
+                    if (G && typeof G.promptMissionFromPlanet === 'function') {
+                        G.promptMissionFromPlanet(clickedPlanet);
+                    }
+                } else {
+                    // Clicked planet body: attempt to dock if in range
+                    const playerShip = U.playerShip;
+                    if (playerShip && dist(playerShip, clickedPlanet) <= clickedPlanet.reachRadius) {
+                        try {
+                            // Trigger docking action directly
+                            if (typeof clickedPlanet.dock === 'function') {
+                                clickedPlanet.dock(playerShip);
+                            } else if (G && typeof G.showPrompt === 'function') {
+                                // Fallback: show dock prompt
+                                G.showPrompt(nomangle('Press D to dock.'), [{
+                                    label: nomangle('Dock'),
+                                    action: () => {
+                                        try { if (typeof clickedPlanet.dock === 'function') clickedPlanet.dock(playerShip); } catch (e) {}
+                                        G.showPrompt();
+                                    }
+                                }]);
+                            }
+                        } catch (e) { /* ignore dock errors */ }
+                    }
                 }
             }
         } catch (e) { /* ignore click errors */ }

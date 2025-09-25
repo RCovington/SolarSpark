@@ -23,9 +23,23 @@ class PlanetaryStation {
     render() {
         const damageFactor = 1 - limit(0, G.clock - this.lastDamage, 0.1) / 0.1;
 
-        scale(1 + damageFactor * 0.2, 1 + damageFactor * 0.2);
+        // Base scale including damage pulse
+        let baseScale = 1 + damageFactor * 0.2;
+        let overrideColor = null;
+        try {
+            const revertUntil = this.planet.civilization._revertAnimationUntil;
+            if (revertUntil && G.clock <= revertUntil) {
+                const dur = 0.6;
+                const progress = 1 - Math.max(0, (revertUntil - G.clock) / dur);
+                const bounce = 0.12 * Math.sin(progress * Math.PI);
+                baseScale *= (1 + bounce);
+                overrideColor = '#0f0';
+            }
+        } catch (e) { /* ignore */ }
 
-        fs(damageFactor > 0 ? '#fff' : this.planet.civilization.relationshipType());
+        scale(baseScale, baseScale);
+
+        fs(damageFactor > 0 ? '#fff' : (overrideColor || this.planet.civilization.relationshipType()));
         this.renderGraphic();
     }
 
@@ -46,6 +60,19 @@ class PlanetaryStation {
             this.lastDamage = G.clock;
 
             this.planet.civilization.updateRelationship(RELATIONSHIP_UPDATE_DAMAGE_STATION);
+            try {
+                if (typeof this.planet.civilization._previousRelationshipOnTempHostility === 'undefined') {
+                    this.planet.civilization._previousRelationshipOnTempHostility = this.planet.civilization.relationship;
+                }
+            } catch (e) { /* ignore */ }
+            try {
+                const secs = (typeof TEMPORARY_ENEMY_SECONDS === 'number') ? TEMPORARY_ENEMY_SECONDS : 120;
+                const already = this.planet.civilization.temporaryEnemyUntil && this.planet.civilization.temporaryEnemyUntil > G.clock;
+                if (!already) {
+                    this.planet.civilization.temporaryEnemyUntil = G.clock + secs;
+                    G.showMessage(this.planet.civilization.center.name + nomangle(' will be hostile for ') + String(secs) + 's');
+                }
+            } catch (e) { /* ignore */ }
 
             if ((this.health -= amount) <= 0) {
                 this.explode(source);
@@ -70,7 +97,20 @@ class PlanetaryStation {
 
         if (source == U.playerShip) {
             this.planet.civilization.updateRelationship(RELATIONSHIP_UPDATE_DESTROY_STATION);
+            try {
+                if (typeof this.planet.civilization._previousRelationshipOnTempHostility === 'undefined') {
+                    this.planet.civilization._previousRelationshipOnTempHostility = this.planet.civilization.relationship;
+                }
+            } catch (e) { /* ignore */ }
             try { if (window.Score) Score.add(2, 'defense'); } catch (e) {}
+            try {
+                const secs = (typeof TEMPORARY_ENEMY_SECONDS === 'number') ? TEMPORARY_ENEMY_SECONDS : 120;
+                const already = this.planet.civilization.temporaryEnemyUntil && this.planet.civilization.temporaryEnemyUntil > G.clock;
+                if (!already) {
+                    this.planet.civilization.temporaryEnemyUntil = G.clock + secs;
+                    G.showMessage(this.planet.civilization.center.name + nomangle(' will be hostile for ') + String(secs) + 's');
+                }
+            } catch (e) { /* ignore */ }
         }
 
         G.eventHub.emit(EVENT_STATION_DESTROYED, this);

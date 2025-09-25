@@ -17,6 +17,28 @@ class Civilization {
     relationshipType() {
         // Colonized civilizations are always allies
         if (this.colonized) return RELATIONSHIP_ALLY;
+        // If temporarily marked as enemy due to recent player aggression, check expiry
+        try {
+            if (this.temporaryEnemyUntil) {
+                if (typeof G !== 'undefined' && G.clock <= this.temporaryEnemyUntil) {
+                    // Still hostile
+                    return RELATIONSHIP_ENEMY;
+                }
+                // Timer expired — restore prior relationship if we saved one, clear saved state and notify once
+                try {
+                    if (typeof this._previousRelationshipOnTempHostility !== 'undefined') {
+                        this.relationship = this._previousRelationshipOnTempHostility;
+                        try { delete this._previousRelationshipOnTempHostility; } catch (e) { this._previousRelationshipOnTempHostility = undefined; }
+                    }
+                } catch (e) { /* ignore */ }
+                this.temporaryEnemyUntil = null;
+                try {
+                    // Trigger a short revert animation on bodies that use this civilization
+                    this._revertAnimationUntil = G.clock + 0.6; // 0.6s animation
+                } catch (e) { /* ignore */ }
+                try { G.showMessage(this.center.name + nomangle(' is no longer hostile')); } catch (e) { /* ignore */ }
+            }
+        } catch (e) { /* ignore */ }
         return this.relationship < 0.5 ? RELATIONSHIP_ENEMY : RELATIONSHIP_ALLY;
     }
 

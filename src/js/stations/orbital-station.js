@@ -78,15 +78,30 @@ class OrbitalStation {
         }
 
         translate(this.x - this.star.x, this.y - this.star.y);
-        
-        const damageFactor = 1 - limit(0, G.clock - this.lastDamage, 0.1) / 0.1;
-        scale(1 + damageFactor * 0.2, 1 + damageFactor * 0.2);
 
-        // Color based on relationship and damage
-        const color = damageFactor > 0 ? '#fff' : 
+        const damageFactor = 1 - limit(0, G.clock - this.lastDamage, 0.1) / 0.1;
+        // Base scale from damage pulse
+        let baseScale = 1 + damageFactor * 0.2;
+        // If a revert animation is active on the civilization, add a small bounce and force green color
+        let overrideColor = null;
+        try {
+            const revertUntil = this.civilization._revertAnimationUntil;
+            if (revertUntil && G.clock <= revertUntil) {
+                const dur = 0.6;
+                const progress = 1 - Math.max(0, (revertUntil - G.clock) / dur);
+                const bounce = 0.12 * Math.sin(progress * Math.PI);
+                baseScale *= (1 + bounce);
+                overrideColor = '#0f0';
+            }
+        } catch (e) { /* ignore */ }
+
+        scale(baseScale, baseScale);
+
+        // Color based on relationship and damage (override to green during revert)
+        const color = damageFactor > 0 ? '#fff' : (overrideColor ||
             (this.civilization.relationshipType() === RELATIONSHIP_ENEMY ? '#f00' : 
-             (this.civilization.relationshipType() === RELATIONSHIP_ALLY ? '#0f0' : '#ff0'));
-        
+             (this.civilization.relationshipType() === RELATIONSHIP_ALLY ? '#0f0' : '#ff0')));
+
         fs(color);
         R.lineWidth = 4;
         
@@ -116,8 +131,23 @@ class OrbitalStation {
             ]);
 
             this.lastDamage = G.clock;
+            // Save prior relationship numeric value so we can restore it after timeout
+            try {
+                if (typeof this.civilization._previousRelationshipOnTempHostility === 'undefined') {
+                    this.civilization._previousRelationshipOnTempHostility = this.civilization.relationship;
+                }
+            } catch (e) { /* ignore */ }
             this.civilization.updateRelationship(RELATIONSHIP_UPDATE_DAMAGE_STATION);
             this.civilization.wasAttackedByPlayer = true;
+            try {
+                const secs = (typeof TEMPORARY_ENEMY_SECONDS === 'number') ? TEMPORARY_ENEMY_SECONDS : 120;
+                const already = this.civilization.temporaryEnemyUntil && this.civilization.temporaryEnemyUntil > G.clock;
+                // Only set and announce if not already in temporary hostile mode
+                if (!already) {
+                    this.civilization.temporaryEnemyUntil = G.clock + secs;
+                    G.showMessage(this.civilization.center.name + nomangle(' will be hostile for ') + String(secs) + 's');
+                }
+            } catch (e) { /* ignore */ }
 
             if ((this.health -= amount) <= 0) {
                 this.explode(source);
@@ -301,8 +331,21 @@ class OrbitalStation {
     U.remove(U.orbitalStations, this);
 
         if (source == U.playerShip) {
+            try {
+                if (typeof this.civilization._previousRelationshipOnTempHostility === 'undefined') {
+                    this.civilization._previousRelationshipOnTempHostility = this.civilization.relationship;
+                }
+            } catch (e) { /* ignore */ }
             this.civilization.updateRelationship(RELATIONSHIP_UPDATE_DESTROY_STATION);
             try { if (window.Score) Score.add(2, 'defense'); } catch (e) {}
+            try {
+                const secs = (typeof TEMPORARY_ENEMY_SECONDS === 'number') ? TEMPORARY_ENEMY_SECONDS : 120;
+                const already = this.civilization.temporaryEnemyUntil && this.civilization.temporaryEnemyUntil > G.clock;
+                if (!already) {
+                    this.civilization.temporaryEnemyUntil = G.clock + secs;
+                    G.showMessage(this.civilization.center.name + nomangle(' will be hostile for ') + String(secs) + 's');
+                }
+            } catch (e) { /* ignore */ }
         }
 
         U.dropResources(this.x, this.y, 15);

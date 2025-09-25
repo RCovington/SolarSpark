@@ -89,7 +89,7 @@ onkeyup = e => {
         console.log('Dock/Trade attempt error:', err && err.message);
     }
     try {
-        // Access Incoming Communications with the 'A' key
+        // Access Incoming Communications with the 'A' key - direct mission access
         if (character === 'a' && typeof U !== 'undefined' && U && U.playerShip) {
             // Find a visible planet that currently has an offer (prefer closest)
             const visibleOffers = (U.bodies || []).filter(body => body instanceof Planet && body.hasOffer && V.isVisible(body, body.radius + 50));
@@ -103,31 +103,8 @@ onkeyup = e => {
 
             if (!chosen) return;
 
-            // If planet is friendly and player is in reach, show a combined prompt with Dock (D) and Accept (A)
-            const isFriendly = chosen.civilization && chosen.civilization.relationshipType && chosen.civilization.relationshipType() === RELATIONSHIP_ALLY;
-            const playerDistance = dist(chosen, U.playerShip);
-            if (isFriendly && playerDistance < chosen.reachRadius) {
-                const title = (chosen.name || 'Unknown');
-                G.showPrompt(title + '\nPress [D] to dock\nPress [A] to accept incoming communication', [{
-                    'label': nomangle('Dock'),
-                    'action': () => {
-                        if (window.createPlanetaryTradePanel) {
-                            window.createPlanetaryTradePanel(chosen, U.playerShip);
-                        } else {
-                            G.showPrompt((chosen.name || 'Unknown') + '\nPlanetary trade unavailable');
-                        }
-                    }
-                }, {
-                    'label': nomangle('Accept'),
-                    'action': () => { if (G && typeof G.promptMissionFromPlanet === 'function') G.promptMissionFromPlanet(chosen); }
-                }, {
-                    'label': nomangle('Ignore'),
-                    'action': () => G.showPrompt()
-                }]);
-            } else {
-                // Otherwise, directly start the mission prompt flow for that planet
-                if (G && typeof G.promptMissionFromPlanet === 'function') G.promptMissionFromPlanet(chosen);
-            }
+            // Directly start the mission prompt flow for that planet - no intermediate prompts
+            if (G && typeof G.promptMissionFromPlanet === 'function') G.promptMissionFromPlanet(chosen);
         }
     } catch (err) {
         console.log('Access offers (A) error:', err && err.message);

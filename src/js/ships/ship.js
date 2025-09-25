@@ -353,4 +353,5 @@ class Ship {
         }
         // Mark explosion handling complete (for GC); keep flag set to avoid re-entry
     }
+}
 
